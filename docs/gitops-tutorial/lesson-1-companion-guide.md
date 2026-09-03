@@ -7,7 +7,7 @@ title = 'GitOps Tutorial Series: Lesson 1'
 In our introductory article, "[Introduction to GitOps](../introduction/_index.md)" we explained how GitOps applies the proven principles of version control and continuous delivery (CD) to infrastructure, allowing you to treat operations the same way you treat code. 
 With GitOps, you skip clicking through menus and checking boxes. 
 Instead, you describe your system in a set of configuration files stored in a git repository. 
-This repository becomes your *single source of truth* for how everything should look. 
+Our repository becomes your *single source of truth* for how everything should look. 
 You then rely on automation to turn your description into reality.
 
 This tutorial aims to give you a practical demonstration of two key GitOps concepts, Infrastructure as Code (IaC) and the reconciliation loop, alongside two tools that bring them to life: Kustomize and Argo CD.
