@@ -2,10 +2,9 @@
 title = 'Introduction to GitOps'
 +++
 
-Most of us start managing infrastructure by clicking through web consoles.
-It works, and it's easy to learn.
-But when systems grow and more people are involved, this approach starts causing problems.
-This document explains what ClickOps is, why it can be painful in production, and how GitOps helps.
+Web consoles (ClickOps) often serve as an initial entry point for infrastructure management. 
+However, manual configuration management creates operational challenges as systems and teams scale. 
+Transitioning to a GitOps workflow addresses these challenges.
 
 ## What is ClickOps?
 
