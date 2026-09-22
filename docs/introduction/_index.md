@@ -1,6 +1,6 @@
 +++
 title = 'Introduction to GitOps'
-+++
++++ 
 
 Most of us start managing infrastructure by clicking through web consoles.
 It works, and it's easy to learn.
