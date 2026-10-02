@@ -1,181 +1,199 @@
 +++
-title = 'GitOps Lesson 1: Your First GitOps Change'
+title = 'GitOps Lesson 1: Your first GitOps change'
 +++
 
 # Background
 
-In our introductory article, "[Introduction to GitOps](../introduction/_index.md)" we explained how GitOps applies the proven principles of version control and continuous delivery (CD) to infrastructure, allowing you to treat operations the same way you treat code. 
-With GitOps, you skip clicking through menus and checking boxes. 
-Instead, you describe your system in a set of configuration files stored in a git repository. 
-This repository becomes your *single source of truth* for how everything should look. 
-You then rely on automation to turn your description into reality.
+The [Introduction to GitOps](../introduction/_index.md) article explains how GitOps applies version control and continuous delivery (CD) principles to infrastructure management, treating operations in the same way as code. 
+Instead of manually configuring resources through graphical interfaces, you define your system state in configuration files stored in a Git repository. 
+This repository acts as the single source of truth for the system state, while automated processes synchronize the live environment with the repository definitions.
 
-This tutorial aims to give you a practical demonstration of two key GitOps concepts, Infrastructure as Code (IaC) and the reconciliation loop, alongside two tools that bring them to life: Kustomize and Argo CD.
+This tutorial demonstrates two core GitOps concepts, Infrastructure as Code (IaC) and the reconciliation loop, by using Kustomize and Argo CD.
 
-## Core Concepts
+## Core concepts
 
 ### Infrastructure as Code
 
-IaC is the practice of managing and provisioning your infrastructure using configuration files rather than manual processes, e.g. ClickOps. 
-By treating infrastructure as code, you define your system's desired state in configuration files and check them into a version control system like a git repository. 
-This approach transforms operations, allowing you to track changes, collaborate, and automate deployments.
+Infrastructure as Code (IaC) is the practice of managing and provisioning infrastructure by using configuration files rather than manual web console procedures (often referred to as ClickOps). 
+By treating infrastructure as code, you define the desired system state in configuration files and store them in a version control system, such as a Git repository. This approach transforms operations by enabling change tracking, team collaboration, and automated deployments.
 
 Key benefits of adopting IaC include:
 
-* **Consistency and eliminating configuration drift**: By using versioned configuration files, you ensure environments remain consistent, effectively eliminating the manual changes that cause configuration drift.  
-* **Disaster recovery**: Because your infrastructure state is codified in version control, rebuilding your environment in the event of a failure is as straightforward as applying your existing configurations.  
-* **Reproducible builds**: IaC enables reliable, repeatable infrastructure deployments, ensuring that the same configuration results in the same environment every time.
+* **Configuration consistency**: Prevents configuration drift by ensuring environments rely on version-controlled files rather than manual changes.
+* **Disaster recovery**: Simplifies environment recovery following a failure by reapplying version-controlled configurations.
+* **Reproducible deployments**: Enables reliable, repeatable infrastructure deployments that produce consistent results.
 
 ### Kustomize
 
-Kustomize is a configuration management tool built directly into the Kubernetes command line tool (`kubectl`), which simplifies managing Kubernetes objects.
-It enables IaC by allowing you to define a common "base" set of configuration files and then apply "overlays" to patch them for different environments, such as staging or production, without relying on messy templating. 
-This ensures that your configurations remain clean, consistent, and reproducible. 
+Kustomize is a configuration management tool integrated directly into the Kubernetes command-line client (`kubectl`) to simplify managing Kubernetes objects. 
+It enables Infrastructure as Code (IaC) by defining a common base set of configuration files. You can then apply overlays to patch resources for specific environments, such as staging or production, without complex templating. 
+This structure keeps configurations clean, consistent, and reproducible.
 
-Throughout these lessons you will create, edit and deploy Kustomize manifests to effect changes to the deployed cluster. 
+Throughout these lessons, you create, edit, and deploy Kustomize manifests to apply changes to the deployed cluster. 
 You can learn more in the [official Kustomize documentation](https://kustomize.io/).
 
-### The Reconciliation Loop
+### The reconciliation loop
 
-The reconciliation loop is the mechanism that transforms IaC into actual, running infrastructure by continuously monitoring the configuration repository and automatically applying changes to the running infrastructure to reach the desired state.
-By choosing off-the-shelf tooling, you gain significant speed and operational efficiency from this automation. 
-Popular tools that implement this reconciliation pattern include [Argo CD](https://argoproj.github.io/cd/) and [Flux](https://fluxcd.io).
+The reconciliation loop transforms IaC into running infrastructure. It continuously monitors the Git repository and automatically applies changes to keep live infrastructure synchronized with the desired state. 
+
+Automating this process with tools like [Argo CD](https://argoproj.github.io/cd/) and [Flux](https://fluxcd.io/) eliminates manual intervention and prevents configuration drift.
 
 ### Argo CD
 
-Argo CD is an open-source, CD tool that runs inside your Kubernetes cluster and implements the reconciliation loop described above. 
-It is the CD technology you will be working with in all the lessons in this series. 
+Argo CD is a Kubernetes-native continuous delivery (CD) tool that implements the reconciliation loop inside a cluster. 
+It is the CD technology that you use throughout the lessons in this series.
 
-You tell Argo CD what to watch by creating an *Application* resource in Kubernetes, a small piece of configuration that says: "monitor this Git repository, look at this directory path, and deploy whatever you find there into this namespace." 
-Argo CD then polls the repository on a regular interval (every three minutes by default, however in our tutorial series we’ve reduced that to thirty seconds for convenience), renders the manifests it finds, and syncs the cluster to match.
+To configure Argo CD, you create an `Application` custom resource that specifies the target Git repository, directory path, and destination namespace. 
+Argo CD then polls the repository at regular intervals (every 3 minutes by default, though reduced to 30 seconds in this tutorial series for convenience), renders the manifests it finds, and synchronizes the cluster to match.
 
-Argo CD exposes the state of this process through two key concepts: *sync status* and *health status*. 
-*Sync status* tells you whether the cluster matches the configuration in your Git repository; *Synced* means they match, whereas *OutOfSync* means Argo CD has detected a difference and will act on it. 
-In the lesson, you will see this status transition when you push a change: it moves from *Synced* to *OutOfSync* (Argo CD noticed the new commit) and back to *Synced* (Argo CD applied the change). 
-Health status is a separate concern that tells you whether the resources themselves are functioning correctly, we’ll explore health status in more detail in Lesson 3. 
+Argo CD exposes the state of this process through two indicators:
 
-## What to watch for in the lesson
+**Sync status**: Indicates whether the cluster matches the configuration in your Git repository. `Synced` means they match, whereas `OutOfSync` means Argo CD has detected a difference and prepares to apply it. 
 
-Now that you’ve looked at the core concepts and technologies you’ll be working with in this lesson, it’s almost time to dive in, but as you do look out for these moments where the concepts above become concrete:
+In this lesson, you see this status transition when you push a change: it moves from `Synced` to `OutOfSync` (Argo CD noticed the new commit) and back to `Synced` (Argo CD applied the change). 
 
-* When you edit `kustomization.yaml`, you are declaratively changing the desired state of the cluster.  
-* When you run `git push`, you are updating the single source of truth. From this moment, the configuration in the repository says a topic should exist.  
-* When Argo CD's status transitions from `Synced` to `OutOfSync` and back to `Synced`, you are watching the reconciliation loop complete a full cycle: observe the change, calculate the required changes and then roll them out.  
+**Health status**: Indicates whether the resources themselves are functioning correctly. Lesson 3 explores health status in more detail.
 
-You’re now ready to work through the hands-on tutorial that follows.
+## What to observe in the lesson
 
-# Tutorial
+Now that you have reviewed the core concepts and technologies for this lesson, observe how these principles apply in practice during the exercise:
 
-## What you will learn
+* When you edit `kustomization.yaml`, you declaratively change the desired state of the cluster.  
+* When you run `git push`, you update the single source of truth. From this moment, the repository configuration specifies that a topic exists.  
+* When the status in Argo CD transitions from `Synced` to `OutOfSync` and back to `Synced`, you observe the reconciliation loop complete a full cycle: detect the change, calculate the required changes, and roll them out.
+  
+You are now ready to work through the hands-on tutorial that follows.
 
-By the end of this lesson you will understand:
+# Tutorial: Lesson 1
 
-- What the GitOps workflow looks like in practice
-- How ArgoCD watches a Git repository and automatically applies changes to a Kubernetes cluster
-- How Strimzi manages Kafka resources declaratively
+## Learning objectives
 
-You will do this by making a real change — adding a Kafka topic — and watching it flow automatically from Git to a running cluster, without ever running `kubectl apply` yourself.
+After completing this lesson, you understand:
+
+* How the GitOps workflow operates in practice
+* How Argo CD monitors a Git repository and automatically applies changes to a Kubernetes cluster
+* How Strimzi manages Kafka resources declaratively
+
+You accomplish this by adding a Kafka topic as a real configuration change and observing it flow automatically from Git to a running cluster without manually running `kubectl apply`.
 
 ## Prerequisites
 
-If you haven't done this yet, run through the [Preparing For The Tutorials](setup.md) guide. You only need to do this once.
+* You completed the steps in the [Preparing for the tutorials](setup.md) guide. You only need to complete this setup once.
 
-## The GitOps idea in one paragraph
+## Understanding GitOps
 
-In traditional operations you make changes to a running system by running commands directly against it — `kubectl apply`, a config panel, an API call. GitOps flips this around: a Git repository is the single source of truth for what the system should look like. A tool (in this case ArgoCD) watches the repository and continuously reconciles the live system to match. If the config in the git repository says a topic should exist, then the topic will be created. If you remove it from the config repository, it disappears from the cluster. You never touch the system directly; you only change the configuration in the repo. You now have, thanks to git, a record of all the changes made, when they were made and by who. You can also setup all kinds of sanity and safety checks to run against those changes before they are applied.
+In traditional operations, you make changes to a running system by executing commands directly against it, such as by using `kubectl apply`, a configuration panel, or an API call. GitOps reverses this approach: a Git repository serves as the single source of truth for the desired state of the system. A tool such as Argo CD monitors the repository and continuously reconciles the live system to match. 
+If the configuration in the Git repository specifies that a topic exists, Argo CD creates the topic. If you remove the configuration from the repository, the topic is removed from the cluster. You never modify the live system directly; you only update the configuration in the repository. Through Git, you have a record of all changes made, when they were made, and by whom. You can also set up automated validation checks to run against changes before they are applied.
+
 
 ## Setup
 
-Run the prep script from this directory:
+Run the preparation script from this directory:
 
 ```bash
 ./prep.sh
 ```
+   
+This process takes less than 1 minute. The script resets the Gitea repository to the initial state for Lesson 1 and verifies that Argo CD is synchronized. When it finishes, the output displays the credentials for Gitea and Argo CD.
 
-This takes under a minute. It resets the Gitea repository to the lesson-1 starting state and confirms that ArgoCD has synced. When it finishes it prints the Gitea and ArgoCD credentials.
+**Note:** You can re-run ./prep.sh at any time to reset the environment to the starting state for the lesson. This is useful if you need to restart the exercise.
 
-You can re-run `./prep.sh` at any time to reset back to the lesson starting state — useful if you make a mistake and want to start over without re-running the full setup.
+## Part 1: Explore the initial environment
 
-## Part 1: Look at what's already running
+Before you make any changes, explore the initial environment deployed by Argo CD from the Git repository. 
 
-Before you make any changes, take a moment to explore the environment. This is where the lesson starts: everything you are about to see was deployed by ArgoCD from Git.
+### Clone the Git repository
 
-### Clone the repository
+The Gitea server runs inside the cluster. The output from the `./prep.sh` script includes the specific git clone command for your environment. 
 
-The Gitea server is running inside the cluster. When you ran the `./prep.sh` script, it printed the exact `git clone` command to use (the Gitea address can vary depending on how your cluster exposes it), run that command, it will follow the below format:
+1. Clone the Git repository:
 
-```bash
-git clone <external address of gitea server> /tmp/gitops-lesson-1
-cd /tmp/gitops-lesson-1
-```
-
-This is the repository ArgoCD is watching. Any change you push here will be picked up and applied to the cluster.
+   ```bash
+   git clone <external_address_of_gitea_server> /tmp/gitops-lesson-1
+   ```
+2. Change to the newly cloned repository directory:
+   
+   ```bash
+   cd /tmp/gitops-lesson-1
+   ```
+   This is the Git repository that Argo CD monitors. Any changes that you push to this repository are automatically synchronized to the cluster.
 
 ### Check the running Kafka cluster
 
-```bash
-kubectl get kafka -n kafka-tutorial
-```
+1. Verify that the Kafka cluster is running in the `kafka-tutorial` namespace:
+   
+   ```bash
+   kubectl get kafka -n kafka-tutorial
+   ```
 
-Expected output:
+   **Expected output**:
 
-```
-NAME         READY    WARNINGS    KAFKA VERSION    METADATA VERSION
-my-cluster   True                 4.2.0            4.2-IV0
-```
+   ```
+   NAME         READY    WARNINGS    KAFKA VERSION    METADATA VERSION
+   my-cluster   True                 4.2.0            4.2-IV0
+   ```
+   A value of `True` in the `READY` column indicates that the Kafka cluster is operational.
 
-`READY: True` means Kafka is up. Now look at *how* this cluster got here — open `manifests/kafka.yaml`:
+2. Inspect the manifest that defines the Kafka cluster:
 
-```bash
-cat manifests/kafka.yaml
-```
+   ```bash
+   cat manifests/kafka.yaml
+   ```
 
-That YAML file, committed to the Git repository, is the description of this Kafka cluster. ArgoCD read it from the repo, applied to the kubernetes cluster and the Strimzi operator created the Kafka cluster from it. You didn't run any `kubectl apply` commands — the setup script pushed the file to the Git repo and ArgoCD took it from there.
+   This YAML file, committed to the Git repository, contains the declarative configuration for the Kafka cluster. Argo CD reads the file from the repository and applies it to the Kubernetes cluster, where the Strimzi operator uses the file to create the Kafka cluster. You do not need to run `kubectl apply` commands; the setup script pushes the configuration file to the Git repository, and Argo CD manages the deployment.
 
-### Check for Kafka topics
 
+### Check for existing Kafka topics
+
+Verify whether any Kafka topics exist in the `kafka-tutorial` namespace:
+   
 ```bash
 kubectl get kafkatopic -n kafka-tutorial
 ```
-
-You should see no topics listed.
+   
+The output indicates that no Kafka topics are currently deployed in the cluster.
 
 ### Understand the kustomization file
 
-ArgoCD uses [Kustomize](https://kustomize.io/) to decide which YAML files to deploy. The entry point is `manifests/kustomization.yaml`:
+Argo CD uses [Kustomize](https://kustomize.io/) to determine which YAML files to deploy. The entry point is `manifests/kustomization.yaml`.
 
-```bash
-cat manifests/kustomization.yaml
-```
+1. Display the contents of `manifests/kustomization.yaml`:
 
-```yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - namespace.yaml
-  - combined-pool.yaml
-  - kafka.yaml
-```
+   ```bash
+   cat manifests/kustomization.yaml
+   ```
+   **Example YAML output**:
 
-This tells ArgoCD: "deploy the configuration in these three files to Kubernetes." Notice that `topic.yaml` is not listed, even though the file exists in the repository:
+   ```yaml
+   apiVersion: kustomize.config.k8s.io/v1beta1
+   kind: Kustomization
+   resources:
+     - namespace.yaml
+     - combined-pool.yaml
+     - kafka.yaml
+   ```
+   This configuration instructs Argo CD to deploy the configuration in the three files specified in the resource list to Kubernetes. Notice that `topic.yaml` is not listed, even though the file exists in the repository.
 
-```bash
-ls manifests/
-```
+2. List all files in the `manifests/` directory:
 
-`topic.yaml` is there — but because it is not in `kustomization.yaml`, ArgoCD ignores it. The cluster's state is determined entirely by what Kustomize includes, not by what files happen to exist in the folder.
+   ```bash
+   ls manifests/
+   ```
+   Although `topic.yaml` exists in the `manifests/` directory, Argo CD ignores it because it is not included in `kustomization.yaml`. The cluster state is determined exclusively by the files declared in the Kustomize configuration, rather than all files present in the directory.
 
 ## Part 2: Make your first GitOps change
 
-Your application team needs a Kafka topic to send and receive messages. Your job is to add it to the cluster — the GitOps way.
+Your application team needs a Kafka topic to send and receive messages. Your task is to add it to the cluster.
 
-### Look at the topic definition
+### View the topic definition
 
-Open `manifests/topic.yaml`:
+Display the contents of `manifests/topic.yaml`:
 
 ```bash
 cat manifests/topic.yaml
 ```
+
+**Example YAML output**:
 
 ```yaml
 apiVersion: kafka.strimzi.io/v1
@@ -193,140 +211,173 @@ spec:
     segment.bytes: "1073741824"
 ```
 
-This defines a topic called `my-first-topic` with 3 partitions. The `strimzi.io/cluster: my-cluster` label tells Strimzi which cluster this topic belongs to. Messages will be retained for 24 hours (`86400000` ms).
+This manifest defines a Kafka topic named `my-first-topic` with `3` partitions. The `strimzi.io/cluster: my-cluster` label directs the Strimzi Operator to deploy the topic to `my-cluster`. The `retention.ms` setting retains messages for 24 hours (`86400000` ms).
 
-The file is ready — you just need to tell Kustomize to include it.
+The manifest is complete. To deploy the Kafka topic, include `topic.yaml` in the `kustomization.yaml` manifest.
 
-### Edit kustomization.yaml
+### Edit the `kustomization.yaml` file
 
-Open `manifests/kustomization.yaml` in your editor and add `- topic.yaml` as the last entry in the resources list:
+1. Open `manifests/kustomization.yaml` in your text editor and add `- topic.yaml` as the last entry in the resources list:
 
-```yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - namespace.yaml
-  - combined-pool.yaml
-  - kafka.yaml
-  - topic.yaml
-```
+   **Example updated file**
 
-Save the file.
+   ```yaml
+   apiVersion: kustomize.config.k8s.io/v1beta1
+   kind: Kustomization
+   resources:
+     - namespace.yaml
+     - combined-pool.yaml
+     - kafka.yaml
+     - topic.yaml
+   ```
+   
+2. Save the file.
 
-### Commit and push
+### Commit and push changes to the repository
 
-```bash
-git add manifests/kustomization.yaml
-git commit -m "Add my-first-topic Kafka topic"
-git push
-```
+1. Stage the updated `kustomization.yaml` file:
+   
+   ```bash
+   git add manifests/kustomization.yaml
+   ```
+2. Commit the changes to the Git repository:
 
-That's it. You've made your GitOps change. The commit is now in the repository that ArgoCD is watching.
+   ```bash
+   git commit -m "Add my-first-topic Kafka topic"
+   ```
+3. Push the commit to the Git repository:
+   
+   ```bash
+   git push
+   ```
 
-## Part 3: Watch the GitOps loop
-
-ArgoCD polls the repository every 30 seconds. Watch it detect your change:
-
-```bash
-kubectl get application kafka-tutorial -n argocd -w
-```
-
-Watch the `SYNC STATUS` column. Within about 30 seconds it will move from `Synced` → `OutOfSync` (when ArgoCD detects your push) → `Synced` again (when it has applied the change). Press `Ctrl+C` once you see it settle back to `Synced`.
+Your first GitOps change is complete. The commit is in the Git repository monitored by Argo CD.
 
 
-### Verify the topic was created
+## Part 3: Observe the GitOps loop
 
-Once ArgoCD shows `Synced`, check that the topic now exists:
+Argo CD polls the Git repository every 30 seconds to reconcile cluster state. 
+
+1. Monitor the Argo CD application status:
+
+   ```bash
+   kubectl get application kafka-tutorial -n argocd -w
+   ```
+   
+2. Observe the `SYNC STATUS` column. Within approximately 30 seconds, the status changes from `Synced` to `OutOfSync` when Argo CD detects the Git push, and then returns to `Synced` once the changes are applied.
+
+3. Press Ctrl+C once you see the status return to `Synced`.
+
+### Verify the topic was created on the cluster
+
+Once the Argo CD status shows `Synced`, check that the topic now exists:
 
 ```bash
 kubectl get kafkatopic my-first-topic -n kafka-tutorial
 ```
 
-Expected output:
+**Expected output:**
 
 ```
 NAME             CLUSTER      PARTITIONS   REPLICATION FACTOR   READY
 my-first-topic   my-cluster   3            1                    True
 ```
 
-`READY: True` confirms that Strimzi's Topic Operator received the `KafkaTopic` resource from ArgoCD and created the topic inside the Kafka broker.
+A `READY` value of `True` confirms that Strimzi's Topic Operator received the `KafkaTopic` resource from Argo CD and created the topic inside the Kafka broker.
 
-**You just deployed a Kafka topic using GitOps.** The change went from your editor, through Git, through ArgoCD, and into the cluster — automatically.
+## GitOps reconciliation process
 
-## How it worked
+The following sequence describes the process that occurs when you execute `git push`: 
 
-Here is the full sequence of what happened after you ran `git push`:
+1. Gitea (the Git server inside the cluster) receives the push.
+2. Argo CD polls Gitea every 30 seconds to check for updates.
+3. Argo CD detects that `kustomization.yaml` includes `topic.yaml`.
+4. Argo CD renders the Kustomize manifests (updating the resource count from 3 to 4).
+5. Argo CD compares the rendered state against the live cluster state and applies the difference, creating the `KafkaTopic` resource.
+6. The Strimzi Operator detects the new `KafkaTopic` resource and creates the topic inside the Kafka broker.
+   
+Without running `kubectl apply`, updating the Git repository causes the system to automatically reconcile its live state to match the target configuration.
 
-```
-git push
-  └─▶ Gitea (Git server inside the cluster) receives the commit
+## Optional: View the Argo CD dashboard
 
-ArgoCD polls Gitea every 30 seconds
-  └─▶ ArgoCD detects that kustomization.yaml now includes topic.yaml
-  └─▶ ArgoCD renders the Kustomize manifests (now four resources instead of three)
-  └─▶ ArgoCD compares the rendered state to what is live in the cluster
-  └─▶ ArgoCD applies the diff — creating the KafkaTopic resource
+You can use the Argo CD web console to view the application resource tree, synchronization history, and cluster state. 
 
-Strimzi Topic Operator watches for KafkaTopic resources
-  └─▶ Strimzi sees the new KafkaTopic and creates the topic inside the Kafka broker
-```
+1. Port-forward the Argo CD server service in a separate terminal window:
 
-The key point: **you never ran `kubectl apply`**. You changed Git, and the system reconciled itself to match. This is what GitOps means in practice.
+   ```bash
+   kubectl port-forward svc/argocd-server -n argocd 8080:443
+   ```
+   
+2. Open [https://localhost:8080](https://localhost:8080) in your browser (accept the self-signed certificate warning).
 
-## Optional: View the ArgoCD dashboard
+3. Retrieve the administrator password:
 
-ArgoCD has a web UI where you can see the application's resource tree, sync history, and current state. In a separate terminal:
+   ```bash
+   kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d; echo
+   ```
+   
+4. Log in with username `admin` and the retrieved password.
+   
+5. Select the `kafka-tutorial` application to view the resource tree, which displays the `Namespace`, `KafkaNodePool`, `Kafka`, and `KafkaTopic` resources managed by Argo CD from a single Git repository.
 
-```bash
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-```
-
-Open [https://localhost:8080](https://localhost:8080) in your browser (accept the self-signed certificate warning).
-
-Retrieve the admin password:
-
-```bash
-kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d; echo
-```
-
-Log in with username `admin` and the password above. Click the `kafka-tutorial` application to see the full resource tree — Namespace, KafkaNodePool, Kafka, and now KafkaTopic, all managed by ArgoCD from a single Git repository.
 
 ## Troubleshooting
 
-**Infrastructure is not running**
-If `./prep.sh` reports that the cluster or Kafka is not found, you need to run the setup script first: `../00-setup/setup.sh`. See [Getting Started](../00-setup/README.md) for setup troubleshooting.
-
-**Kafka cluster is not becoming ready**
-Kafka takes a few minutes to start, especially on machines with limited resources. Check pod status and events:
+### Infrastructure is not running
+If `./prep.sh` reports that the cluster or Kafka is not found, run the setup script: 
 
 ```bash
-kubectl get pods -n kafka-tutorial
-kubectl describe kafka my-cluster -n kafka-tutorial
+../00-setup/setup.sh
 ```
 
-**ArgoCD is not syncing**
-Check the application for error messages:
+See [Getting Started guide](../00-setup/README.md) for setup troubleshooting.
 
-```bash
-kubectl get application kafka-tutorial -n argocd -o yaml
-```
+### Kafka cluster is not becoming ready
+Kafka requires several minutes to start, particularly in environments with limited resources.
 
-If Gitea is unreachable from inside the cluster, verify the Gitea pod is running:
+1. Check the pod status in the `kafka-tutorial` namespace:
 
-```bash
-kubectl get pods -n gitea
-```
+   ```bash
+   kubectl get pods -n kafka-tutorial
+   ```
+   
+2. Inspect the events for the `my-cluster` Kafka cluster:
 
-**Topic is not appearing after sync**
-Check that the `kustomization.yaml` edit was saved and committed correctly:
+   ```bash
+   kubectl describe kafka my-cluster -n kafka-tutorial
+   ```
 
-```bash
-git log --oneline -3
-git show HEAD:manifests/kustomization.yaml
-```
+### Argo CD application is not syncing
 
-Confirm `- topic.yaml` appears in the resources list. If it does not, re-edit, commit, and push.
+1. Check the application for error messages:
 
-## What's next
+   ```bash
+   kubectl get application kafka-tutorial -n argocd -o yaml
+   ```
 
-In [Lesson 2](lesson-2.md), you will build on this environment by creating separate staging and production configurations and walk through the process of promoting a change through environments — the same Git-as-source-of-truth principle, applied to multi-environment workflows.
+2. If Gitea is unreachable from inside the cluster, verify that the Gitea pod is running:
+
+   ```bash
+   kubectl get pods -n gitea
+   ```
+
+### Topic is not appearing after sync
+
+1. Check the recent Git commit log:
+
+   ```bash
+   git log --oneline -3
+   ```
+   
+2. Inspect the `kustomization.yaml` manifest in the latest commit:
+
+   ```bash
+   git show HEAD:manifests/kustomization.yaml
+   ```
+   
+3. Confirm that `- topic.yaml` appears in the `resources` list. If it does not appear, edit, commit, and push the file again.
+
+
+### Next steps
+
+In [Lesson 2](lesson-2.md), you build on this setup by creating separate staging and production configurations. You then learn how to promote changes between environments while applying Git source-of-truth principles to multi-environment workflows.
