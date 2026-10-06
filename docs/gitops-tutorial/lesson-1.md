@@ -380,4 +380,4 @@ Kafka requires several minutes to start, particularly in environments with limit
 
 ### Next steps
 
-In [Lesson 2](lesson-2.md), you build on this setup by creating separate staging and production configurations. You then learn how to promote changes between environments while applying Git source-of-truth principles to multi-environment workflows.
+In [Lesson 2](lesson-2.md), you build on this setup by creating separate staging and production configurations. You then learn how to promote changes between environments while applying the IaC principle to multi-environment workflows.
