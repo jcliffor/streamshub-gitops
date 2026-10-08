@@ -4,181 +4,194 @@ title = 'GitOps Lesson 2: Promoting Changes Across Environments'
 
 # Background
 
-In lesson 1, you successfully performed your first GitOps change. 
-You edited your cluster configuration, pushed it to Git, and watched as Argo CD handled the heavy lifting of reconciling and rolling out those updates. 
-This workflow is the heart of the GitOps loop: you define your infrastructure as code and let automation ensure your cluster matches that vision.
+In Lesson 1, you edited your cluster configuration and pushed the updates to Git. 
+Argo CD then automatically reconciled and deployed the changes. 
+This workflow forms the foundation of GitOps: you define infrastructure as code, and automation keeps your live cluster aligned with that target state.
 
-But what happens when your project starts to scale? 
-As organizations grow, managing infrastructure becomes a high-stakes balancing act. 
-You cannot simply push every change directly to production and hope for the best. 
-Instead, you need a reliable way to validate changes in a staging environment before promoting them forward. 
-This practice of environment promotion is how you ship safely at scale.
+As your project grows, pushing changes directly to production creates deployment risk. 
+To ensure system stability, you need a way to validate configuration changes in a staging environment before promoting them to production. 
 
-The real challenge lies in keeping these environments in sync. 
-While staging and production will have intentional differences, like the number of replicas or resource quotas, they should stay functionally identical. 
-If they diverge, you lose the ability to guarantee that a successful test in staging will actually work in production. 
-Relying on manual "ClickOps" processes makes this divergence inevitable. 
-Without a controlled pipeline, minor discrepancies accumulate over time into configuration drift that is difficult to track.
+The core challenge is keeping staging and production environments synchronized. 
+While these environments require intentional parameter differences, such as replica counts or resource quotas, their underlying configurations must remain identical.
+If the environments diverge, a successful test in staging no longer guarantees a predictable outcome in production. 
+Relying on manual console changes makes configuration divergence inevitable. 
+Without an automated GitOps pipeline, minor discrepancies accumulate over time into untracked configuration drift.
 
-As we’ve previously discussed, by adopting GitOps you define your infrastructure as configuration managed within a Git repository. 
-This repository serves as the single source of truth for your environments, allowing you to move away from the manual, error-prone processes that inevitably lead to configuration drift.
+In a GitOps workflow, you define your infrastructure as configuration files managed within a Git repository. 
+This repository serves as the single source of truth for your environments, eliminating manual, error-prone processes that cause configuration drift. 
 
-In this lesson, we will explore how Kustomize overlays handle these multi-environment configurations and how Argo CD manages them independently from a single repository. 
-You will see that promotion in a GitOps world is not about running a manual deploy command. 
-Instead, it is a simple configuration change followed by a Git commit that updates the desired state for your target environment.
+In this lesson, you use Kustomize overlays to structure multi-environment configurations and configure Argo CD to manage them independently from a single repository. 
+You practice environment promotion without running manual deployment commands. Instead, promoting a change involves modifying configuration files and committing them to Git to update the desired state for your target environment.
 
-## Core Concepts
+## Core concepts
 
-### Multi-Environment Configuration
+### Multi-environment configuration
 
-We previously discussed why organizations maintain multiple environments and how GitOps helps you avoid configuration drift by defining your environments in configuration files. 
+Previously, you explored why organizations maintain multiple environments and how GitOps helps you avoid configuration drift by defining your environments in configuration files. 
 However, simply creating separate configuration files for each environment is still problematic. 
-Maintaining multiple files is inherently fragile, as updating a shared cluster definition would require you to modify every copy independently. 
-If you miss a single update, you introduce the very drift you were trying to avoid. 
-Instead, you need a way to define your shared configuration once and layer environment-specific differences on top.
+Maintaining multiple files is error-prone because updating a shared cluster definition requires you to modify every copy independently.
+If you miss a single update, you introduce the configuration drift you intend to avoid. 
+Instead, you need to define your shared configuration once and layer environment-specific differences on top.
 
-### The Kustomize Base and Overlay Pattern
+## The Kustomize base and overlay pattern
 
-So, how do we solve the duplication problem without losing our minds? 
-This is where Kustomize steps in with its 'base and overlay' pattern. 
-Think of the base as your primary definition for your environments. 
+To eliminate configuration duplication, you can organize your application manifests by using Kustomize. 
+Kustomize addresses this challenge through its base and overlay pattern. 
+Consider the base as your primary configuration definition for your environments. 
 It contains all the shared configuration that every environment needs. 
-Your core cluster definition stays here, defined exactly once. 
-Then, you have your overlays. 
-These are simply separate directories for each environment, like staging or production. 
-An overlay references the base and then layers on just the differences. 
+You define your core cluster configuration here, exactly once.
+Next, you construct your overlays. 
+These are separate directories for each environment, such as staging or production. 
+An overlay references the base configuration and then layers on only the differences. 
 If you need a different namespace or extra scaling parameters for production, you define those specific overrides in that environment's overlay.
 
-Each overlay includes a kustomization.yaml file that tells Kustomize how to glue things together. 
-When it runs, Kustomize takes the base, injects the environment-specific settings, and generates the final configuration.
+Each overlay directory includes a `kustomization.yaml` file that instructs Kustomize how to combine your resources. 
+When it runs, Kustomize takes the base manifests, injects the environment-specific settings, and generates the final configuration.
 
-Why is this approach a game changer?
+Key benefits of the base and overlay pattern:
 
-* **No more configuration duplication:** Because shared resources live in the base, you update them once and the change flows to every environment automatically.  
-* **Crystal clear customization:** Each overlay only contains the specific differences for that environment. 
-  You can see at a glance exactly how staging differs from production.  
-* **Easy scaling:** Need to add a new environment? Just create a new overlay directory and a matching Argo CD Application. 
-  You don't need to copy entire sets of files or build a complex new pipeline.
+* **Eliminates configuration duplication:** Because shared resources live in the base, you update them once and the change flows to every environment automatically.  
+* **Provides clear environment customization:** Each overlay contains only the specific differences for that environment. You can see at a glance exactly how staging differs from production.  
+* **Simplifies environment scaling:** To add a new environment, create a new overlay directory and a matching Argo CD `Application` resource. 
+  You do not need to copy entire sets of files or build a complex new pipeline.
 
-### Promotion as a Git Commit
+## Promotion as a Git commit
 
-As you saw in Lesson 1, you change the state of your cluster by updating the configuration and pushing it to your Git repository. 
-Promotion is no different, you simply update the production overlay and push the commit. 
-This approach ensures every promotion is auditable and reviewable, in Lesson 3 you’ll see why this is important.
+As you practiced in Lesson 1, you change cluster state by updating configuration files and pushing them to your Git repository. Environment promotion follows the same workflow: you update the production overlay and commit the changes to Git. This approach ensures that every promotion is auditable and reviewable. In Lesson 3, you explore why auditability is important.
 
-### Multiple Argo CD Applications
+## Multiple Argo CD applications
 
-Argo CD supports the multi-environment pattern through multiple *Application* resources, each configured to watch a different directory path in the same Git repository and deploy to a different namespace (in a real system this would probably be a separate Kubernetes cluster). 
-In the lesson, we’ll use a separate Application for staging and production. 
-Argo CD evaluates each Application independently on every poll cycle.
+Argo CD supports multi-environment deployments through separate `Application` resources, each configured to watch a different directory path in the same Git repository and deploy to a distinct namespace or cluster. 
+In this exercise, you configure a separate `Application` resource for staging and production. 
+Argo CD evaluates each `Application` resource independently on every poll cycle.
+This independence provides **environment isolation**. 
+When you push a commit that adds a resource to the production overlay, only the production `Application` resource detects a change and triggers a rollout. 
+Changes to one environment cannot affect another, because the scope of each `Application` resource is limited to its own overlay directory and target namespace.
 
-This independence provides *environment isolation*. 
-When you push a commit that adds a resource to the production overlay, only the production Application detects a change and triggers a roll out. 
-Changes to one environment cannot accidentally affect another, because each Application's scope is limited to its own overlay directory and target namespace.
+## What to observe in the lesson
 
-## What to watch for in the lesson
+Promoting configuration changes across environments relies on the following key observations:
 
-Now that you have explored the core concepts and technologies behind environment promotion, it is time to dive in. 
-As you do, look out for these moments where the concepts become concrete:
+* When you explore the `manifests/` directory and view `base/`, `overlays/staging/`, and `overlays/production/`, you see the Kustomize base and overlay pattern in practice: shared configuration in `base/`, with environment-specific layers on top.
+* When you copy `topic.yaml` into the `production` overlay, add it to `kustomization.yaml`, and run `git push`, you perform a GitOps promotion. The commit that updates the target environment's desired state is the only required deployment action.
+* When Argo CD syncs the `kafka-production` `Application` resource while `kafka-staging` remains unchanged, you observe environment isolation. Because each `Application` resource independently watches its own overlay path, changes to one environment do not affect another.
 
-* When you explore the `manifests/` directory and see `base/`, `overlays/staging/`, and `overlays/production/`, you are looking at the Kustomize base and overlay pattern in practice: shared configuration in the base, with environment-specific layers on top. 
-* When you copy `topic.yaml` into the production overlay, add it to `kustomization.yaml`, and run git push, you are performing a GitOps promotion. 
-  The commit that updates the target environment's desired state is the only deployment action required.  
-* When Argo CD syncs the kafka-production Application while kafka-staging remains unchanged, you are seeing environment isolation. 
-  Because each Application independently watches its own overlay path, a change to one environment never affects another.
+You are now ready to work through the hands-on tutorial that follows
 
-You’re now ready to work through the hands-on tutorial that follows.
+# Tutorial: Lesson 2
 
-# Tutorial
+## Learning objectives
 
-## What you will learn
+After completing this lesson, you understand:
 
-By the end of this lesson you will understand:
+* How **Kustomize overlays** share a `base` configuration and layer environment-specific differences on top
+* How Argo CD manages multiple `Application` resources from a single Git repository, each watching a different path
+* How promoting a change from staging to production is simply a configuration update pushed to your Git repository
 
-- How **kustomize overlays** let you share a base configuration and layer environment-specific differences on top
-- How ArgoCD can manage multiple Applications from a single Git repository, each watching a different path
-- What it means to **promote** a change from staging to production — and why it is just a configuration change, pushed to your Git repository.
-
-You will do this by observing a staging environment with a deployed Kafka topic, then promoting that topic to production by copying it into the production overlay and pushing to Git.
+You accomplish this by observing a staging environment with a deployed Kafka topic, then promoting that topic to production by copying it into the production overlay and pushing to Git.
 
 ## Prerequisites
 
-If you haven't done this yet, run through the [Preparing For The Tutorials](setup.md) guide. You only need to do this once.
+* You completed the steps in the [Preparing for the tutorials](setup.md) guide. You only need to complete this setup once.
+
 
 ## Why environments matter
 
-In Lesson 1 you made a single change in the configuration hosted in the Git repository and watched it be applied to the the cluster automatically. In practice, organisations don't push changes directly to production — they promote changes through a chain of environments: developers push to **staging** first, validate the change, then promote to **production**.
+In Lesson 1, you made a single change in the configuration hosted in the Git repository and watched Argo CD apply it to the cluster automatically. In practice, organizations do not push changes directly to production. Instead, they promote changes through a chain of environments: developers push to staging first, validate the change, then promote to production.
 
-The key insight: promotion from one environment to another, in a GitOps world, is not a deploy command. It is a change in a Git repository. You describe what each environment should look like in the configuration in the repo and ArgoCD continuously reconciles each environment to match its description. Promoting a change means updating the description for the target environment and pushing.
+The key insight: In a GitOps workflow, promoting a change between environments is not a deploy command. It is a configuration change in a Git repository. You define the desired state for each environment in the repository, and Argo CD continuously reconciles the cluster to match. Promoting a change simply means updating the target environment's desired state and pushing the commit.
 
-**Kustomize overlays** are the kubernetes-native mechanism for managing configurations. You keep a shared base configuration and then have one overlay per environment that references the base and adds or patches environment-specific resources. ArgoCD points a separate Application at each overlay.
-
+**Kustomize overlays** are the Kubernetes-native mechanism for managing configurations. You keep a shared base configuration and then have one overlay per environment that references the base configuration and adds or patches environment-specific resources. Argo CD points a separate `Application` resource at each overlay.
 
 ## Setup
 
-Run the prep script from this directory:
+Run the preparation script from this directory:
 
 ```bash
 ./prep.sh
 ```
 
-This takes approximately 5 minutes. It:
+This process takes approximately 5 minutes and performs the following actions:
 
 1. Removes the Lesson 1 state from the cluster
 2. Seeds the Gitea repository with the multi-environment overlay structure
-3. Creates two ArgoCD Applications — one for staging and one for production
+3. Creates two Argo CD `Application` resources, one for staging and one for production
 4. Waits for both Kafka clusters to become ready
 
-When it finishes it prints the Gitea and ArgoCD credentials.
+When it finishes, the output displays the credentials for Gitea and Argo CD.
 
-You can re-run `./prep.sh` at any time to reset back to the lesson starting state.
+**Note:** You can rerun ./prep.sh at any time to reset the environment to the starting state for the lesson. This is useful if you need to restart the exercise.
 
 ## Part 1: Explore the environment
 
+Before you make any changes, explore the initial environment deployed by Argo CD from the Git repository.
+
 ### Clone the repository
 
-When you ran the `./prep.sh` script, it printed the exact `git clone` command to use (the Gitea address can vary depending on how your cluster exposes it), run that command, it will follow the below format:
+The Gitea server runs inside the cluster. The output from the `./prep.sh` script includes the specific `git clone` command for your environment. 
 
-```bash
-git clone <external address of gitea server> /tmp/gitops-lesson-2
-cd /tmp/gitops-lesson-2
-```
+1. Clone the Git repository:
+   
+   ```bash
+   git clone <gitea_server_address> /tmp/gitops-lesson-2
+   ```
 
-### Check what's running in each environment
+2. Change to the newly cloned repository directory:
 
-```bash
-kubectl get kafka -n kafka-staging
-kubectl get kafka -n kafka-production
-```
+   ```bash
+   cd /tmp/gitops-lesson-2
+   ```
 
-Both should show `READY: True` — you have two independent Kafka clusters, each in its own namespace.
+### Check for active Kafka clusters and topics across environments
 
-Now check for topics:
+1. Verify that a Kafka cluster is running in the `kafka-staging` namespace:
+   
+   ```bash
+   kubectl get kafka -n kafka-staging
+   ```
 
-```bash
-kubectl get kafkatopic -n kafka-staging
-kubectl get kafkatopic -n kafka-production
-```
+2. Verify that a Kafka cluster is running in the `kafka-production` namespace:
 
-You should see `my-first-topic` in staging, but nothing in production. **This is the starting state: staging is ahead of production.**
+   ```bash
+   kubectl get kafka -n kafka-production
+   ```
 
-### Check the ArgoCD Applications
+   Both commands return `READY: True`, confirming that an independent Kafka cluster is running in each namespace.
 
-```bash
-kubectl get application -n argocd
-```
+3. Check for existing Kafka topics in the `kafka-staging` namespace:
 
-You'll see two Applications: `kafka-staging` and `kafka-production`. Each one watches a different path in the same Git repository, and each deploys to a different namespace.
+   ```bash
+   kubectl get kafkatopic -n kafka-staging
+   ```
 
-## Part 2: Understand the overlay structure
+4. Check for existing Kafka topics in the `kafka-production` namespace:
 
-Look at how the repository is organised:
+   ```bash
+   kubectl get kafkatopic -n kafka-production
+   ```
+
+   The output displays `my-first-topic` in the `kafka-staging` namespace and no resources in the `kafka-production` namespace, establishing the starting state where staging is ahead of production.
+   
+     
+### Check the Argo CD applications
+
+1. List the applications in the `argocd` namespace:
+   
+   ```bash
+   kubectl get application -n argocd
+   ```
+   
+   The output displays two `Application` resources: `kafka-staging` and `kafka-production`. Each resource watches a different path in the same Git repository, and each deploys to a different namespace.
+
+## Part 2: Explore the overlay structure
+
+Display the directory tree of the `manifests/` folder:
 
 ```bash
 tree manifests/
 ```
 
-Instead of a flat `manifests/` directory as in Lesson 1, you'll see:
+The command output displays the following directory layout:
 
 ```
 manifests/
@@ -196,12 +209,16 @@ manifests/
         └── namespace.yaml
 ```
 
-### The base
+### The base configuration
+
+Display the contents of `manifests/base/kustomization.yaml`:
 
 ```bash
 cat manifests/base/kustomization.yaml
 ```
 
+Example YAML output:
+   
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -210,13 +227,16 @@ resources:
   - kafka.yaml
 ```
 
-The base contains the shared Kafka cluster definition. It has no namespace or environment-specific configuration — those come from the overlays.
+The `base` directory contains the shared Kafka cluster definition without any namespace or environment-specific configuration, which comes from the `overlays` directory.
 
 ### The staging overlay
+
+Display the contents of `manifests/overlays/staging/kustomization.yaml`:
 
 ```bash
 cat manifests/overlays/staging/kustomization.yaml
 ```
+Example YAML output:
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -228,27 +248,30 @@ resources:
   - topic.yaml
 ```
 
-The staging overlay:
-- Sets `namespace: kafka-staging` — kustomize applies this to every resource from the base
-- Includes the base (shared Kafka config)
-- Adds its own `namespace.yaml` (to create the `kafka-staging` namespace)
-- Adds `topic.yaml` (the Kafka topic)
+The staging overlay performs the following configurations:
+* Sets `namespace: kafka-staging` across all base resources.
+* Includes the shared base Kafka configuration.
+* Adds its own `namespace.yaml` to create the `kafka-staging` namespace.
+* Adds `topic.yaml` to define the Kafka topic.
 
-The ArgoCD `kafka-staging` Application points to this directory. When kustomize renders it, ArgoCD gets the full set of resources: namespace, Kafka cluster, KafkaNodePool, and topic — all in the `kafka-staging` namespace.
+The Argo CD `kafka-staging` `Application` resource points to this directory. When Kustomize renders it, Argo CD receives the full set of resources: `namespace`, `Kafka` cluster, `KafkaNodePool`, and topic, all in the `kafka-staging` namespace.
 
-You can render the full overlay yourself to see exactly what ArgoCD will apply:
+To render the full overlay and verify what Argo CD applies, run the following command:
 
 ```bash
 kubectl kustomize manifests/overlays/staging
 ```
 
-Notice that every resource has `namespace: kafka-staging` injected — that is kustomize combining the base with the overlay.
+Every resource in the output has `namespace: kafka-staging` injected, demonstrating how Kustomize combines the base configuration with the overlay.
 
 ### The production overlay
+
+Display the contents of `manifests/overlays/production/kustomization.yaml`:
 
 ```bash
 cat manifests/overlays/production/kustomization.yaml
 ```
+Example YAML output:
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -259,208 +282,258 @@ resources:
   - namespace.yaml
 ```
 
-Notice that `topic.yaml` is **absent** — both from the resources list and from the directory itself. The topic only exists in the staging overlay. The production Kafka cluster is running, but no topic has been promoted to it yet.
+The `topic.yaml` file is omitted from both the `resources` list and the overlay directory. As a result, the topic exists only in the staging overlay. Although the production Kafka cluster is running, no topic has been promoted to production yet.
 
 ## Part 3: Promote the topic to production
 
-Your staging team has validated `my-first-topic` and it is ready for production. Promoting it means copying the topic definition from the staging overlay into the production overlay and adding it to production's `kustomization.yaml` — both changes together as a single atomic commit.
+Your staging team has validated `my-first-topic` and it is ready for production. Promoting it means copying the topic definition from the staging overlay into the production overlay and adding it to the production `kustomization.yaml` file in a single atomic commit.
 
-First, copy the topic definition from staging into production:
+1. Copy the topic definition from staging into production:
 
-```bash
-cp manifests/overlays/staging/topic.yaml manifests/overlays/production/topic.yaml
-```
+   ```bash
+   cp manifests/overlays/staging/topic.yaml manifests/overlays/production/topic.yaml
+   ```
 
-Then open `manifests/overlays/production/kustomization.yaml` in your editor and add `- topic.yaml` to the resources list:
+2. Open `manifests/overlays/production/kustomization.yaml` in your editor and add `- topic.yaml` to the `resources` list:
 
-```yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-namespace: kafka-production
-resources:
-  - ../../base
-  - namespace.yaml
-  - topic.yaml
-```
+   ```yaml
+   apiVersion: kustomize.config.k8s.io/v1beta1
+   kind: Kustomization
+   namespace: kafka-production
+   resources:
+     - ../../base
+     - namespace.yaml
+     - topic.yaml
+   ```
 
-Save, commit, and push:
+3. Stage the changes:
 
-```bash
-git add manifests/overlays/production/
-git commit -m "Promote my-first-topic to production"
-git push
-```
+   ```bash
+   git add manifests/overlays/production/
+   ```
 
-That is the promotion. The topic definition and the kustomize entry arrive together — just as they would in a real pull request. You changed the configuration in the Git repository; the system will reconcile to match.
+4. Commit the changes:
 
-## Part 4: Watch both ArgoCD Applications
+   ```bash
+   git commit -m "Promote my-first-topic to production"
+   ```
 
-ArgoCD polls the repository every 30 seconds. Watch the production Application detect and apply your change:
+5. Push the commit to the repository:
 
-```bash
-kubectl get application kafka-production -n argocd -w
-```
+   ```bash
+   git push
+   ```
 
-The `SYNC STATUS` column will move from `Synced` → `OutOfSync` → `Synced` within about 30 seconds. Press `Ctrl+C` once it settles. Remember, you only changed the production overlay, so only the production Application was affected.
+This commit completes the promotion. The topic definition and the Kustomize entry arrive together, just as they would in a real pull request. By updating the configuration in the Git repository, the system automatically reconciles to match.
 
-### Verify the topic is in production
+## Part 4: Watch both Argo CD applications
 
-Once `kafka-production` shows `Synced`:
+Argo CD polls the Git repository every 30 seconds to reconcile cluster state. 
 
-```bash
-kubectl get kafkatopic -n kafka-production
-```
+1. Watch the production application detect and apply your change:
 
-Expected output:
+   ```bash
+   kubectl get application kafka-production -n argocd -w
+   ```
 
-```
-NAME             CLUSTER      PARTITIONS   REPLICATION FACTOR   READY
-my-first-topic   my-cluster   3            1                    True
-```
+2. Observe the `SYNC STATUS` column. Within approximately 30 seconds, the status changes from `Synced` to `OutOfSync` when Argo CD detects the Git push, and then returns to `Synced` once the changes are applied.
 
-Confirm staging is unchanged:
+3. Press Ctrl+C once you see the status return to `Synced`.
 
-```bash
-kubectl get kafkatopic -n kafka-staging
-```
+Because you updated only the production overlay, only the production application reconciles.
 
-Same topic, same configuration. **You promoted a change from staging to production by copying the resource and updating the kustomization — a single atomic Git commit.**
+### Verify that the topic is in production
 
-## How it worked
+1. Once `kafka-production` shows `Synced`, verify that the Kafka topic exists in the `kafka-production` namespace:
 
-```
-git push
-  └─▶ Gitea receives the commit
+   ```bash
+   kubectl get kafkatopic -n kafka-production
+   ```
 
-ArgoCD polls Gitea every 30 seconds
-  └─▶ kafka-staging Application: manifests/overlays/staging → no change → stays Synced
-  └─▶ kafka-production Application: manifests/overlays/production → topic.yaml now included
-  └─▶ ArgoCD applies the diff to the kafka-production namespace — creating the KafkaTopic resource
+   Expected output:
 
-Strimzi Topic Operator
-  └─▶ Strimzi sees the new KafkaTopic and creates the topic inside the kafka-production Kafka broker
-```
+   ```
+   NAME             CLUSTER      PARTITIONS   REPLICATION FACTOR   READY
+   my-first-topic   my-cluster   3            1                    True
+   ```
 
-Each Application is independent. Changes to one overlay do not affect the other. The configuration in the Git repository is the source of truth for both environments, and the overlay structure makes clear exactly what each environment contains.
+2. Confirm that the staging environment remains unchanged:
 
-## Optional: View the ArgoCD dashboard
+   ```bash
+   kubectl get kafkatopic -n kafka-staging
+   ```
+   
+   The topic configuration in the staging environment remains identical. The promotion copied the resource and updated the `kustomization.yaml` file in the production overlay only, combining both changes into a single atomic Git commit.
 
-In a separate terminal, start the port-forward:
+## GitOps reconciliation process
 
-```bash
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-```
+The following sequence describes the process that occurs when you execute `git push`: 
 
-Open [https://localhost:8080](https://localhost:8080) (accept the self-signed certificate warning).
+1. Gitea (the Git server inside the cluster) receives the push.
+2. Argo CD polls Gitea every 30 seconds to check for updates.
+3. Argo CD does not detect configuration changes for the `kafka-staging` `Application` (`manifests/overlays/staging`). The status remains `Synced`.
+4. Argo CD detects that the `kustomization.yaml` file for the `kafka-production` `Application` (`manifests/overlays/production`) includes `topic.yaml`.
+5. Argo CD applies the manifest differences to the `kafka-production` namespace, creating the `KafkaTopic` resource.
+6. The Strimzi Operator detects the new `KafkaTopic` resource and creates the topic inside the `kafka-production` Kafka broker.
+   
+Each application is independent. Changes to one overlay do not affect the other. The configuration in the Git repository is the source of truth for both environments, and the overlay structure makes it clear exactly what each environment contains.
 
-Retrieve the admin password:
+## View the Argo CD dashboard (optional)
 
-```bash
-kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d; echo
-```
+1. Port-forward the Argo CD server service in a separate terminal window:
 
-Log in with username `admin`. You will see both `kafka-staging` and `kafka-production` Applications. Click each one to see its resource tree — the resources are the same (Namespace, KafkaNodePool, Kafka), but one includes a KafkaTopic and the other does not.
+   ```bash
+   kubectl port-forward svc/argocd-server -n argocd 8080:443
+   ```
+2. Open `https://localhost:8080` in your browser (accept the self-signed certificate warning).
 
-## Bonus: Environment-specific configuration
+3. Retrieve the administrator password:
 
-So far you promoted `my-first-topic` to production with exactly the same configuration as staging — 3 partitions. In the real world, production often needs a different configuration: more partitions for throughput, a longer retention period, higher replication.
+   ```bash
+   kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d; echo
+   ```
 
-You can patch resources in an overlay by simply editing the overlay's copy of the file.
+4. Log in using `admin` as the username and the retrieved password.
 
-Open `manifests/overlays/production/topic.yaml` and increase the partition count to match production-scale requirements:
+   Both the `kafka-staging` and `kafka-production` applications are displayed. 
 
-```yaml
-apiVersion: kafka.strimzi.io/v1
-kind: KafkaTopic
-metadata:
-  name: my-first-topic
-  labels:
-    strimzi.io/cluster: my-cluster
-spec:
-  partitions: 10
-  replicas: 1
-  config:
-    retention.ms: "86400000"
-    segment.bytes: "1073741824"
-```
+5. Select each application to view its resource tree.
 
-Commit and push:
+   Both applications share the same base resources (`Namespace`, `KafkaNodePool`, and `Kafka`), but only `kafka-production` includes the `KafkaTopic` resource.
 
-```bash
-git add manifests/overlays/production/topic.yaml
-git commit -m "Set production topic to 10 partitions"
-git push
-```
+## Configure environment-specific resources (optional)
 
-After ArgoCD syncs, verify the partition counts in each environment:
+In the previous procedure, you promoted `my-first-topic` to production with the same configuration as staging (3 partitions). In production environments, topics often require different configurations, such as higher partition counts for throughput, longer retention periods, or increased replication.
 
-```bash
-kubectl get kafkatopic my-first-topic -n kafka-production -o jsonpath='{.spec.partitions}'; echo
-kubectl get kafkatopic my-first-topic -n kafka-staging -o jsonpath='{.spec.partitions}'; echo
-```
+You can customize resources in an overlay by editing the overlay copy of the file.
 
-Production shows `10`; staging still shows `3`. **The environments are independently configurable** — a change to one overlay has no effect on the other.
+1. Open `manifests/overlays/production/topic.yaml` and increase the partition count to match production-scale requirements:
 
-## What you've learned
+   ```yaml
+   apiVersion: kafka.strimzi.io/v1
+   kind: KafkaTopic
+   metadata:
+     name: my-first-topic
+     labels:
+       strimzi.io/cluster: my-cluster
+   spec:
+     partitions: 10
+     replicas: 1
+     config:
+       retention.ms: "86400000"
+       segment.bytes: "1073741824"
+   ```
 
-- Kustomize overlays let you share a base configuration and layer environment-specific changes on top without duplicating files
-- ArgoCD can manage multiple Applications from a single Git repository, each watching a different path
-- Promotion is a configuration change — copying a resource into the target overlay and adding it to `kustomization.yaml`, followed by a Git commit and push, is all it takes
-- Environments are isolated from each other: a change to one overlay does not affect others
-- In production, you would typically use separate clusters or ArgoCD instances per environment; the promotion principle is identical — it is always a configuration change, pushed to your Git repository that drives the sync
+2. Stage the changes:
+
+   ```bash
+   git add manifests/overlays/production/topic.yaml
+   ```
+
+3. Commit the changes:
+
+   ```bash
+   git commit -m "Set production topic to 10 partitions"
+   ```
+
+4. Push the commit to the repository:
+
+   ```bash
+   git push
+   ```
+
+5. After Argo CD completes reconciliation, verify the partition count in each environment:
+
+   ```bash
+   kubectl get kafkatopic my-first-topic -n kafka-production -o jsonpath='{.spec.partitions}'; echo
+   kubectl get kafkatopic my-first-topic -n kafka-staging -o jsonpath='{.spec.partitions}'; echo
+   ```
+The output displays `10` for production and `3` for staging. Environments are independently configurable, so changes to one overlay do not affect other overlays.
+
+## Key takeaways
+
+* Kustomize overlays allow you to share a base configuration and apply environment-specific changes without duplicating files.
+* Argo CD can manage multiple `Application` resources from a single Git repository, with each resource watching a distinct directory path.
+* Promotion is a configuration change: copying a resource into the target overlay directory, adding it to the `kustomization.yaml` file, and executing a Git commit and push.
+* Environments are isolated from each other, so a change to one overlay does not affect other overlays.
+* In production, you typically use separate clusters or Argo CD instances for each environment. The underlying promotion principle remains identical: a configuration change pushed to your Git repository triggers the synchronization process.
 
 ## Troubleshooting
 
-**Infrastructure is not running**  
-If `./prep.sh` reports that the cluster or Strimzi is not found, run the setup script first: `../00-setup/setup.sh`.
-
-**Kafka clusters are not becoming ready**  
-Both clusters start in parallel. Check pod status in each namespace:
+If `./prep.sh` reports that the cluster or Strimzi is not found, run the setup script: 
 
 ```bash
-kubectl get pods -n kafka-staging
-kubectl get pods -n kafka-production
+../00-setup/setup.sh
 ```
 
-If pods are in `Pending` state, your Docker memory may be insufficient. This lesson requires ~8 GB. Check Docker Desktop's memory settings.
+### Kafka clusters fail to reach a ready state
 
-**ArgoCD Application is not syncing**  
-Check for error messages:
+Both clusters start in parallel. 
+
+1. Check the pod status in the `kafka-staging` namespace:
+
+   ```bash
+   kubectl get pods -n kafka-staging
+   ```
+
+2. Check the pod status in the `kafka-production` namespace:
+
+   ```bash
+   kubectl get pods -n kafka-production
+   ```
+   
+If the pods remain in the `Pending` state, Docker memory might be insufficient. This lesson requires approximately 8 GB of memory. Check Docker Desktop memory settings.
+
+### Argo CD application is not syncing
+
+1. Check the application for error messages:
 
 ```bash
 kubectl get application kafka-production -n argocd -o yaml
 ```
 
-If Gitea is unreachable from inside the cluster:
+2. If Gitea is unreachable from inside the cluster, verify that the Gitea pod is running:
 
 ```bash
 kubectl get pods -n gitea
 ```
 
-**Topic is not appearing after sync**  
-Confirm both files were committed correctly:
+### Topic is not appearing after sync  
 
-```bash
-git log --oneline -3
-git show HEAD:manifests/overlays/production/kustomization.yaml
-```
+1. Confirm that both files were committed to the repository:
 
-Confirm `- topic.yaml` appears in the resources list and the topic file exists:
+   ```bash
+   git log --oneline -3
+   ```
 
-```bash
-git show HEAD:manifests/overlays/production/topic.yaml
-```
+2. Inspect the `kustomization.yaml` file in the latest commit:
 
-**Strimzi is not managing the Kafka clusters**  
-Check that the operator is running and watching all namespaces:
+   ```bash
+   git show HEAD:manifests/overlays/production/kustomization.yaml
+   ```
 
-```bash
-kubectl get deployment strimzi-cluster-operator -n strimzi-operator
-kubectl logs deployment/strimzi-cluster-operator -n strimzi-operator | grep STRIMZI_NAMESPACE
-```
+3. Confirm that the `- topic.yaml` entry appears in the `resources` list and that the `topic.yaml` file exists in the repository:
 
-You should see `STRIMZI_NAMESPACE` set to `*`. If the operator is not running, re-run `../00-setup/setup.sh`.
+   ```bash
+   git show HEAD:manifests/overlays/production/topic.yaml
+   ```
 
-## What's next
+### Strimzi Cluster Operator fails to manage Kafka clusters  
 
-In [Lesson 3](lesson-3.md), you will use `git revert` to undo a broken configuration that has already reached production — and watch GitOps automatically restore the cluster to the last known-good state.
+1. Check that the Operator deployment is running:
+
+   ```bash
+   kubectl get deployment strimzi-cluster-operator -n strimzi-operator
+   ```
+   
+2. Verify that the Operator is configured to watch all namespaces:
+   
+   ```bash
+   kubectl logs deployment/strimzi-cluster-operator -n strimzi-operator | grep STRIMZI_NAMESPACE
+   ```
+
+   The command output displays `STRIMZI_NAMESPACE` set to `*`. If the operator is not running, re-run the `../00-setup/setup.sh` script.
+
+## Next steps
+
+In [Lesson 3: Reverting changes](lesson-3.md), you use `git revert` to undo a broken configuration that reached production, and observe how the automated reconciliation process restores the cluster to the last known good state.
