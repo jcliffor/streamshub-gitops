@@ -70,13 +70,13 @@ Changes to one environment cannot affect another, because the scope of each `App
 
 ## What to observe in the lesson
 
-Promoting configuration changes across environments relies on the following key observations:
+Now that you have explored the core concepts and technologies behind environment promotion, look for these key observations during the lesson:
 
 * When you explore the `manifests/` directory and view `base/`, `overlays/staging/`, and `overlays/production/`, you see the Kustomize base and overlay pattern in practice: shared configuration in `base/`, with environment-specific layers on top.
 * When you copy `topic.yaml` into the `production` overlay, add it to `kustomization.yaml`, and run `git push`, you perform a GitOps promotion. The commit that updates the target environment's desired state is the only required deployment action.
 * When Argo CD syncs the `kafka-production` `Application` resource while `kafka-staging` remains unchanged, you observe environment isolation. Because each `Application` resource independently watches its own overlay path, changes to one environment do not affect another.
 
-You are now ready to work through the hands-on tutorial that follows
+You are now ready to work through the hands-on tutorial that follows.
 
 # Tutorial: Lesson 2
 
