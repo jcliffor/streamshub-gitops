@@ -128,7 +128,7 @@ Before you make any changes, explore the initial environment deployed by Argo CD
 
 ### Clone the repository
 
-The Gitea server runs inside the cluster. The output from the `./prep.sh` script includes the specific `git clone` command for your environment. 
+The Gitea server runs inside the cluster. The output of the `./prep.sh` script includes the specific `git clone` command for your environment. 
 
 1. Clone the Git repository:
    
