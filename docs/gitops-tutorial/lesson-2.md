@@ -118,7 +118,7 @@ This process takes approximately 5 minutes and performs the following actions:
 3. Creates two Argo CD `Application` resources, one for staging and one for production
 4. Waits for both Kafka clusters to become ready
 
-When the script finishes, the output displays the credentials for Gitea and Argo CD.
+When the script completes, the output displays the credentials for Gitea and Argo CD.
 
 **Note:** You can rerun ./prep.sh at any time to reset the environment to the starting state for the lesson. This is useful if you need to restart the exercise.
 
