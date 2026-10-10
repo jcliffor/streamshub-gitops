@@ -94,9 +94,9 @@ Run the preparation script from this directory:
 ./prep.sh
 ```
    
-This process takes less than 1 minute. The script resets the Gitea repository to the initial state for Lesson 1 and verifies that Argo CD is synchronized. When it finishes, the output displays the credentials for Gitea and Argo CD.
+This process takes less than 1 minute. The script resets the Gitea repository to the initial state for Lesson 1 and verifies that Argo CD is synchronized. When the script completes, the output displays the credentials for Gitea and Argo CD.
 
-**Note:** You can re-run ./prep.sh at any time to reset the environment to the starting state for the lesson. This is useful if you need to restart the exercise.
+**Note:** You can rerun ./prep.sh at any time to reset the environment to the starting state for the lesson. This is useful if you need to restart the exercise.
 
 ## Part 1: Explore the initial environment
 
@@ -104,12 +104,12 @@ Before you make any changes, explore the initial environment deployed by Argo CD
 
 ### Clone the Git repository
 
-The Gitea server runs inside the cluster. The output from the `./prep.sh` script includes the specific git clone command for your environment. 
+The Gitea server runs inside the cluster. The output from the `./prep.sh` script includes the specific `git clone` command for your environment. 
 
 1. Clone the Git repository:
 
    ```bash
-   git clone <external_address_of_gitea_server> /tmp/gitops-lesson-1
+   git clone <gitea_server_address> /tmp/gitops-lesson-1
    ```
 2. Change to the newly cloned repository directory:
    
@@ -162,7 +162,7 @@ Argo CD uses [Kustomize](https://kustomize.io/) to determine which YAML files to
    ```bash
    cat manifests/kustomization.yaml
    ```
-   **Example YAML output**:
+   Example YAML output:
 
    ```yaml
    apiVersion: kustomize.config.k8s.io/v1beta1
@@ -193,7 +193,7 @@ Display the contents of `manifests/topic.yaml`:
 cat manifests/topic.yaml
 ```
 
-**Example YAML output**:
+Example YAML output:
 
 ```yaml
 apiVersion: kafka.strimzi.io/v1
@@ -219,7 +219,7 @@ The manifest is complete. To deploy the Kafka topic, include `topic.yaml` in the
 
 1. Open `manifests/kustomization.yaml` in your text editor and add `- topic.yaml` as the last entry in the resources list:
 
-   **Example updated file**
+   Example updated file
 
    ```yaml
    apiVersion: kustomize.config.k8s.io/v1beta1
@@ -276,7 +276,7 @@ Once the Argo CD status shows `Synced`, check that the topic now exists:
 kubectl get kafkatopic my-first-topic -n kafka-tutorial
 ```
 
-**Expected output:**
+Expected output:
 
 ```
 NAME             CLUSTER      PARTITIONS   REPLICATION FACTOR   READY
@@ -298,7 +298,7 @@ The following sequence describes the process that occurs when you execute `git p
    
 Without running `kubectl apply`, updating the Git repository causes the system to automatically reconcile its live state to match the target configuration.
 
-## Optional: View the Argo CD dashboard
+## View the Argo CD dashboard (Optional)
 
 You can use the Argo CD web console to view the application resource tree, synchronization history, and cluster state. 
 
@@ -308,7 +308,7 @@ You can use the Argo CD web console to view the application resource tree, synch
    kubectl port-forward svc/argocd-server -n argocd 8080:443
    ```
    
-2. Open [https://localhost:8080](https://localhost:8080) in your browser (accept the self-signed certificate warning).
+2. Open `https://localhost:8080` in your browser and accept the self-signed certificate warning.
 
 3. Retrieve the administrator password:
 
@@ -316,7 +316,7 @@ You can use the Argo CD web console to view the application resource tree, synch
    kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d; echo
    ```
    
-4. Log in with username `admin` and the retrieved password.
+4. Log in using `admin` as the username and the retrieved password.
    
 5. Select the `kafka-tutorial` application to view the resource tree, which displays the `Namespace`, `KafkaNodePool`, `Kafka`, and `KafkaTopic` resources managed by Argo CD from a single Git repository.
 
@@ -329,10 +329,9 @@ If `./prep.sh` reports that the cluster or Kafka is not found, run the setup scr
 ```bash
 ../00-setup/setup.sh
 ```
-
 See [Getting Started guide](../00-setup/README.md) for setup troubleshooting.
 
-### Kafka cluster is not becoming ready
+### Kafka cluster fails to reach a ready state
 Kafka requires several minutes to start, particularly in environments with limited resources.
 
 1. Check the pod status in the `kafka-tutorial` namespace:
