@@ -385,7 +385,7 @@ Each application is independent. Changes to one overlay do not affect the other.
    ```bash
    kubectl port-forward svc/argocd-server -n argocd 8080:443
    ```
-2. Open `https://localhost:8080` in your browser (accept the self-signed certificate warning).
+2. Open `https://localhost:8080` in your browser and accept the self-signed certificate warning.
 
 3. Retrieve the administrator password:
 
