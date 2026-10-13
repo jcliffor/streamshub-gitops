@@ -2,51 +2,52 @@
 title = 'GitOps Tutorial Series: Wrapping Up'
 +++
 
-# What You've Learned
+# What you have learned
 
 In Lesson 1, you learned the two foundational principles of GitOps. 
-First, that your infrastructure is defined as configuration stored in a Git repository, making it the *single source of truth* for the state of your cluster. 
-Second, that a *reconciliation loop* continuously watches that repository and automatically rolls out any changes it detects. 
-You pushed a commit and the system converged to match, no manual intervention required.
+First, your infrastructure is defined as configuration stored in a Git repository, making it the single source of truth for the state of your cluster. 
+Second, a reconciliation loop continuously monitors that repository and automatically deploys any detected changes. 
+You pushed a commit, and the system reconciled to match without requiring manual intervention.
 
-In Lesson 2, you scaled that workflow to handle multiple environments. 
-Using Kustomize's base and overlay pattern, you managed staging and production configurations from a single repository, each with its own ArgoCD Application watching its own directory path. 
-Promoting a change from staging to production wasn't a special deployment step. 
-It was a configuration change and a Git commit, the same workflow you'd already learned.
+In Lesson 2, you scaled that workflow to manage multiple environments. 
+By using the Kustomize base and overlay pattern, you managed staging and production configurations from a single repository. 
+Independent Argo CD Application resources governed each environment by watching its specific directory path. 
+Promoting a change from staging to production was not a separate deployment step. 
+It was a configuration update and a Git commit: the same workflow that you had already learned.
 
-In Lesson 3, you saw that GitOps handles failure the same way it handles everything else: through Git. 
-A rollback is just another commit that returns the configuration to a known-good state. 
-Because the reconciliation loop applies whatever is in the repository, recovery is automatic. 
-And because every change is a Git commit, the full history of the incident, from the breaking change to the fix, is preserved as an auditable record.
+In Lesson 3, you observed that GitOps manages deployment failures through Git. 
+A rollback is simply another commit that returns the configuration to a known-good state. 
+Because the reconciliation loop applies the configuration declared in the repository, recovery is automatic. 
+Furthermore, because every modification is recorded as a Git commit, the complete history of the incident, from the initial breaking change to the resolution, is preserved as an auditable record.
 
-# The Tools Behind the Workflow
+# The tools behind the workflow
 
-Two tools made all of this possible.
+Two primary tools enabled this workflow: 
 
-**Kustomize** gave you a clean, declarative way to manage your Kubernetes manifests. 
-In Lesson 1, it controlled which resources ArgoCD deployed. 
-By Lesson 2, it was doing much more: shared base configurations with environment-specific overlays handled the complexity of multi-environment management without duplicating a single YAML file.
+Kustomize provides a declarative method for managing Kubernetes manifests. 
+In Lesson 1, Kustomize defined the specific resources that Argo CD deployed. 
+In Lesson 2, shared base configurations combined with environment-specific overlays managed multi-environment configurations without duplicating YAML files. 
 
-**ArgoCD** was the engine that turned your Git repository into a live, self-healing system. 
-It watched for changes, applied them to the cluster and continuously reported both sync and health status. 
-It's what made the "push and forget" workflow possible and what ensured that when you rolled back a bad change, the recovery was automatic.
+Argo CD serves as the continuous delivery engine that transforms your Git repository into a live, self-healing system. 
+It monitors for configuration changes, applies differences to the cluster, and continuously reports both sync and health status. 
+Argo CD automates deployment reconciliation so that when you roll back an invalid change in Git, cluster recovery is automatic. 
 
-# Final Thoughts on GitOps
+# Final thoughts on GitOps
 
-Throughout this series, every change you made to your cluster followed the same pattern: edit configuration, commit, push. 
-Deployments, promotions and rollbacks were all just Git commits; that consistency is the real strength of GitOps. 
-You get reproducibility, auditability and safe rollbacks not as extra features you have to set up, but as natural consequences of treating your Git repository as the single source of truth. 
-It's a simpler and more reliable way to manage infrastructure, built on tools and workflows you already know.
+Throughout this series, every modification to your cluster followed an identical pattern: edit the configuration, commit the change, and push to the repository. 
+Deployments, promotions, and rollbacks were all executed as Git commits; this operational consistency is the core strength of GitOps. 
+You gain reproducibility, auditability, and safe rollbacks automatically by establishing your Git repository as the single source of truth. 
+GitOps offers a structured, reliable method to manage infrastructure using standard version control workflows.
 
-# Next Steps
+# Next steps
 
-Now that you have the fundamentals down, explore the `examples/` directory in this repository to see GitOps applied to production-grade streaming infrastructure. 
-All of the examples support both OpenShift and vanilla Kubernetes.
+Now that you understand the fundamentals, explore the `examples/` directory in this repository to see GitOps applied to production-grade streaming infrastructure. 
+All examples support both Red Hat OpenShift and standard Kubernetes.
 
 * **Basic Kafka** (`examples/scenarios/basic-kafka/`): A production-ready Kafka cluster running in KRaft mode with Cruise Control for automatic rebalancing and Prometheus metrics for monitoring.
-* **Kafka with OAuth** (`examples/scenarios/kafka-oauth/`): Extends the basic cluster with OAuth/OIDC authentication powered by Keycloak, including a full realm configuration with roles, users and clients.
+* **Kafka with OAuth** (`examples/scenarios/kafka-oauth/`): Extends the basic cluster with OAuth and OIDC authentication powered by Keycloak, including a full realm configuration with roles, users, and clients.
 * **Kafka Mirroring** (`examples/scenarios/kafka-mirror/`): Cross-cluster data replication using MirrorMaker 2, with the External Secrets Operator handling cross-namespace TLS credential management.
-* **App of Apps** (`examples/app-of-apps/`): An ArgoCD ApplicationSet that deploys all operators and scenarios with a single command, demonstrating a real-world pattern for managing multiple applications at scale.
+* **App of Apps** (`examples/app-of-apps/`): An Argo CD ApplicationSet that deploys all operators and scenarios with a single command, demonstrating a real-world pattern for managing multiple applications at scale.
 
-Each scenario comes with its own README, verification steps and customization guidance. 
-They're designed as starting points you can adapt for your own infrastructure.
+Each scenario includes its own README file, verification steps, and customization guidance. 
+They are designed as starting points that you can adapt for your infrastructure.
