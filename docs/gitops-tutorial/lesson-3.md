@@ -4,501 +4,494 @@ title = 'GitOps Lesson 3: Rolling Back a Bad Change'
 
 # Background
 
-In lesson 1, you made your first GitOps change: you edited a configuration file, pushed it to your Git repository, and watched ArgoCD reconcile the cluster to match. 
-In lesson 2, you scaled that workflow across multiple environments using Kustomize overlays, promoting a change from staging to production with nothing more than a configuration change and Git commit.
+In Lesson 1, you made your first GitOps change: you edited a configuration file, pushed it to your Git repository, and observed Argo CD reconcile the cluster.
+In Lesson 2, you scaled that workflow across multiple environments using Kustomize overlays, promoting a change from staging to production with a single configuration update and Git commit.
 
-But what happens when a change that looks perfectly valid turns out to be wrong? 
-The YAML is well-formed, Kubernetes accepts it, and ArgoCD reports a successful sync. 
-Yet underneath, the system is broken. 
-The configuration you pushed describes something the underlying platform cannot actually do. 
-This is not a hypothetical edge case. 
-It is a failure mode that every team running production infrastructure will encounter sooner or later.
+In practice, a configuration can be syntactically valid yet operationally broken. 
+Even when your YAML is well-formed, accepted by Kubernetes, and successfully synchronized by Argo CD, the application can remain broken underneath if it requests actions the underlying platform cannot execute. 
+This scenario is a common failure mode in production infrastructure.
+In this lesson, you learn how to verify runtime deployment health beyond synchronization status and roll back failed changes using a single Git commit.
 
-This lesson tackles that scenario head-on. 
-You will learn how to distinguish between a successful sync and a genuinely healthy deployment, and when things go wrong, how to roll back safely with a single commit.
+## Core concepts
 
-## Core Concepts
+### Sync status versus health status
 
-### Sync Status vs Health Status
+Argo CD tracks two independent statuses for every `Application` resource:
 
-ArgoCD tracks two independent statuses for every Application it manages. 
-*Sync status* tells you whether ArgoCD successfully applied the configuration files from your Git repository to Kubernetes. 
-When the Kubernetes API accepts the YAML, the Application is `Synced`. 
-*Health status* tells you whether the resources are actually functioning correctly.
+* **Sync status**: Indicates whether Argo CD successfully applied your Git configuration files to Kubernetes. Once the Kubernetes API accepts the YAML manifests, Argo CD reports the resource as `Synced`.
 
-These two statuses are independent. 
-A resource can be `Synced` but `Degraded` or stuck in `Progressing` indefinitely. 
-This happens when Kubernetes stores the desired state without complaint, but the controller responsible for that resource cannot fulfill it. 
-A deployment is only truly complete when it is both Synced and Healthy. 
-Treating sync alone as a green light is a common and dangerous mistake.
+* **Health status**: Indicates whether the underlying resources are functioning as expected.
 
-### Why "Synced but Unhealthy" Matters
+A resource can be `Synced` while remaining `Degraded` or persisting in a `Progressing` state. This situation occurs when Kubernetes stores the requested state without error, but the responsible controller fails to execute it. A deployment is complete only when it is both `Synced` and `Healthy`.
 
-ArgoCD's responsibility ends at the Kubernetes API server. 
-It renders your manifests, applies them and confirms that Kubernetes accepted the request. 
-But whether the underlying platform, be it a message broker, a database, or any operator-managed system, can actually honour the change is a separate concern entirely.
+### Impact of synced but unhealthy resources
 
-Consider a configuration change that the Kubernetes API accepts but the platform rejects. 
-The Custom Resource is stored, so ArgoCD reports `Synced`. 
-But the operator that manages that resource inspects the change, determines it violates a constraint of the system it manages and marks the resource as not ready. 
-ArgoCD sees this and reports `Progressing` or `Degraded`, but it cannot fix the problem. 
-The system is now in a state where the GitOps engine has done its job, yet the deployment is broken. 
-This is precisely the situation that demands a rollback.
+Reconciliation by Argo CD ends at the Kubernetes API server. Argo CD renders your manifests, applies them, and confirms that Kubernetes accepts the request. However, whether the underlying platform, such as a message broker, a database, or an operator-managed system, can execute the change is a separate concern.
+
+Consider a configuration change that the Kubernetes API accepts but the underlying platform rejects. Because Kubernetes stores the custom resource without error, Argo CD reports a status of `Synced`. When the managing operator inspects the resource, it determines that the update violates a system constraint and marks the resource as not ready. Argo CD detects this condition and updates the status to `Progressing` or `Degraded`, but it cannot resolve the failure.
+
+Although the GitOps engine completes synchronization, the application deployment remains broken. This scenario requires a rollback to restore operational health.
 
 ### Rollback as a Git Commit
 
-As you saw in Lesson 2, promotion was not a special operation, it was a change in configuration, pushed to a Git repository. 
-In precisely the same vein, a rollback is not a special operation. 
-There is no dedicated rollback command, no emergency cluster access, and no deployment pipeline to trigger. 
-The Git repository is the single source of truth, so fixing the cluster means fixing the configuration in the repository. 
-You simply create a new commit that returns the configuration to a known-good state, push it, and the reconciliation loop does the rest.
+In Lesson 2, you saw that promoting a change is not a special operation; it is a configuration update pushed to a Git repository. Likewise, a rollback is not a special operation. 
+There is no dedicated rollback command, no emergency cluster access, and no pipeline to trigger. 
+The Git repository remains your single source of truth, so fixing the cluster means updating the repository configuration. 
+You create a commit that reverts the configuration to a known-good state, push it to the repository, and allow the reconciliation loop to synchronize the cluster.
+This workflow is identical to the one you used for the original deployment. 
+The only difference is that the commit undoes a previous change instead of introducing a new one. To Git and Argo CD, it is another commit.
 
-This is the same workflow you used to deploy the original change. 
-The only difference is that the commit undoes something rather than introducing something new. 
-From Git's perspective, and from ArgoCD's, it is just another commit.
+### `git revert` versus `git reset --hard`
 
-### `git revert` vs `git reset --hard`
+Although Git provides multiple methods to undo a commit, these commands have fundamentally different implications in a GitOps workflow:
 
-There are two ways to undo a commit in Git, and they have very different implications in a GitOps context.
+* `git revert <commit_hash>`: Creates a new commit that applies the exact inverse of the target commit. The original commit remains in the repository history, and the rollback commit is appended to the branch history, preserving an intact audit trail. Because this approach is additive, it does not alter existing commits and is safe to use on shared branches. 
+* `git reset --hard` followed by `git push --force`: Rewrites history by removing the target commit from the branch history. In a GitOps environment, this approach is an anti-pattern because it destroys the audit trail, removing all record of the incident and its resolution.
 
-`git revert <commit hash>` creates a new commit that applies the exact inverse of the target commit. 
-The breaking change stays in the history and the record of the rollback sits on top of it, maintaining an intact audit trail.
-This approach is additive and safe on shared branches because it does not alter any existing commits.
+Use `git revert` to undo changes in a GitOps workflow. It preserves the complete event history and maintains a safe, consistent branch state that all collaborators can pull from.
 
-`git reset --hard` followed by a force-push takes the opposite approach. 
-It rewrites history, removing the bad commit as if it never happened. 
-This is an anti-pattern as the audit trail is destroyed, leaving no record of the incident or its resolution. 
+### Self-healing reconciliation
 
-The correct choice is `git revert`. 
-It preserves the full sequence of events and keeps the repository in a state that every collaborator can safely pull from.
+After you push the revert commit, recovery is automatic. Argo CD detects the new commit during its next polling cycle and applies it to the cluster. 
+When the resource returns to a valid state, Argo CD marks it as healthy. This process requires no manual intervention on the cluster.
+The complete sequence of the breaking change, failure, and recovery remains in the Git commit history for inspection. 
+This demonstrates the power of treating a Git repository as the single source of truth: even incidents become part of the auditable record.
 
-### Self-Healing Reconciliation
+## What to observe in the lesson
 
-Once the revert commit is pushed, the recovery is automatic. 
-ArgoCD detects the new commit on its next poll cycle and applies them to the cluster. 
-The operator sees the resource return to a valid state and marks it healthy. 
-No manual intervention on the cluster side is required.
+Now that you have explored the core concepts behind rollback and health monitoring, look for these key observations during the lesson:
 
-The complete sequence of the breaking change, failure and recovery is preserved in the Git commit history for anyone to inspect. 
-This is the power of treating your Git repository as the single source of truth: even incidents become part of the auditable record.
+* When Argo CD displays `Synced` but `Progressing` after you push the breaking change, you see the distinction between sync status and health status in action. Argo CD completed the synchronization, but the underlying system did not accept the change. 
+* When you inspect the resource and see `Ready: False` with a reason explaining why the operation was rejected, you see the platform enforce its constraints independently of Kubernetes. 
+* When you run `git revert` and push the change, you perform a GitOps rollback. Because this commit is additive, it does not rewrite history and preserves an intact audit trail. 
+* When the Application resource returns to `Synced` and `Healthy` without executing `kubectl` commands, you observe self-healing reconciliation.
 
-## What to watch for in the lesson
-
-Now that you have explored the core concepts behind rollback and health monitoring, it is time to dive in. 
-As you do, look out for these moments where the concepts become concrete:
-
-* When ArgoCD shows `Synced` but `Progressing` after you push the breaking change, you are seeing the sync/health distinction in action. ArgoCD did its job, but the underlying system did not accept the change.
-* When you inspect the resource and see `Ready: False` with a reason explaining why the operation was rejected, you are seeing the platform enforce its own constraints independently of Kubernetes.
-* When you run `git revert` and push, you are performing a GitOps rollback. It is a new additive commit, it doesn't re-write history and the audit trail remains intact.
-* When the Application returns to `Synced` and `Healthy` without any kubectl commands, you are watching the self-healing reconciliation close the loop.
-
-You’re now ready to work through the hands-on tutorial that follows.
+You are now ready to work through the hands-on tutorial that follows.
 
 # Tutorial
 
-## What you will learn
+## Learning objectives
 
-By the end of this lesson you will understand:
+After completing this lesson, you understand:
 
-- Why **ArgoCD Synced does not mean the change worked** — sync status and health status are separate concerns
-- How Strimzi enforces Kafka's own constraints (partition count can only increase, never decrease)
-- How to **roll back a breaking change** using `git revert` — a new commit that undoes the previous one, preserving the full audit trail
-- Why `git revert` is the correct GitOps approach, and why rewriting history with `git reset --hard` is an anti-pattern
+* Why an Argo CD status of `Synced` does not indicate that a change succeeded, because sync status and health status are separate concerns. 
+* How Strimzi enforces Kafka constraints, such as requiring partition counts to increase rather than decrease. 
+* How to roll back a breaking change by using `git revert` to create a new commit that undoes the previous commit and preserves the complete audit trail.
+* Why `git revert` is the recommended GitOps strategy and why rewriting history with `git reset --hard` is an anti-pattern. 
 
-You will do this by deploying a configuration change that ArgoCD accepts but Strimzi rejects, observing the failure, and performing a GitOps rollback that heals the cluster automatically.
+To observe these concepts, you deploy a configuration change that Argo CD accepts but Strimzi rejects, inspect the resulting failure, and execute a GitOps rollback th
 
 ## Prerequisites
 
-If you haven't done this yet, run through the [Preparing For The Tutorials](setup.md) guide. You only need to do this once.
+* You completed the steps in the [Preparing for the tutorials](setup.md) guide. You only need to complete this setup once.
 
-## Two things to understand before we start
+## Essential concepts
 
-### Sync status vs health status
+### Sync status versus health status
 
-ArgoCD tracks two independent statuses for every Application:
+Argo CD tracks two independent statuses for every `Application` resource:
 
-- **Sync Status** (`Synced` / `OutOfSync`): Did ArgoCD successfully apply the manifests from Git to Kubernetes? This reflects whether the Kubernetes API accepted the YAML. A successful `kubectl apply` produces `Synced`.
-
-- **Health Status** (`Healthy` / `Degraded` / `Progressing`): Is the resource actually working? This is assessed by reading resource conditions — for a KafkaTopic, that means checking the `Ready` condition set by the Strimzi Topic Operator.
-
-These can disagree. A manifest can be `Synced` (Kubernetes stored the desired state) while the application is `Degraded` (the platform rejected the semantic change underneath). This lesson demonstrates that divergence concretely.
+* **Sync status (`Synced` or `OutOfSync`)**: Indicates whether Argo CD successfully applied the manifests from Git to Kubernetes. This status reflects whether the Kubernetes API accepted the YAML declarations. Executing `kubectl apply` successfully results in a `Synced` status.
+  
+* **Health status (`Healthy`, `Degraded`, or `Progressing`)**: Indicates whether the underlying resource is operating correctly. Argo CD assesses health status by reading resource conditions. For a `KafkaTopic` resource, Argo CD checks the `Ready` condition set by the Strimzi Topic Operator.
+  
+These two statuses can diverge. A manifest can be `Synced` when Kubernetes stores the desired state, even while the application remains `Degraded` because the underlying platform rejected the semantic change. This lesson demonstrates that divergence concretely.
 
 ### GitOps rollback
 
-Because the configuration in the Git repository is the source of truth, rolling back is not a special operation — it is just another Git commit. You revert the bad commit, push, and the reconciler heals the cluster automatically. No `kubectl rollout undo`, no deployment pipeline, no emergency access needed.
+Because the configuration in the Git repository is the source of truth, rolling back a deployment is a standard Git commit rather than a specialized recovery operation. When you revert the breaking commit and push the change, the reconciliation loop heals the cluster automatically. This process does not require `kubectl rollout undo` commands, external deployment pipelines, or emergency cluster access.
 
 ## Setup
 
-Run the prep script from this directory:
+Run the preparation script from this directory:
 
 ```bash
 ./prep.sh
 ```
 
-This takes approximately 5 minutes. It:
+This script takes approximately 5 minutes to complete and performs the following actions:
+1. Removes state from previous lessons.
+2. Seeds the Gitea repository with a working Kafka cluster and topic.
+3. Waits for both the Kafka cluster and topic to become ready.
 
-1. Removes any state from previous lessons
-2. Seeds the Gitea repository with a working Kafka cluster and topic
-3. Waits for both the Kafka cluster and the topic to become ready
 
-When it finishes it prints the Gitea and ArgoCD credentials.
+When the script completes, the output displays the credentials for Gitea and Argo CD.
 
-You can re-run `./prep.sh` at any time to reset back to the lesson starting state. If you have already cloned the repo at `/tmp/gitops-lesson-3`, delete it first (`rm -rf /tmp/gitops-lesson-3`) because the reset rewrites the Gitea commit history.
+You can rerun `./prep.sh` at any time to reset the environment to the starting state for the lesson. If you already cloned the repository to `/tmp/gitops-lesson-3`, delete the directory before running the script again because the reset operation rewrites the Gitea commit history:
+
+```bash
+rm -rf /tmp/gitops-lesson-3
+```
 
 ## Part 1: Explore the starting state
 
 ### Clone the repository
 
-When you ran the `./prep.sh` script, it printed the exact `git clone` command to use (the Gitea address can vary depending on how your cluster exposes it), run that command, it will follow the below format:
+The Gitea server runs inside the cluster. The output of the `./prep.sh` script includes the specific `git clone` command for your environment.
 
-```bash
-git clone <external address of gitea server> /tmp/gitops-lesson-3
-cd /tmp/gitops-lesson-3
-```
+1. Clone the Git repository:
+   ```bash
+   git clone <gitea_server_address> /tmp/gitops-lesson-3
+   ```
+
+2. Change to the newly cloned repository directory:
+   ```bash
+   cd /tmp/gitops-lesson-3
+   ```
 
 ### Check the running resources
 
-```bash
-kubectl get kafka -n kafka-tutorial
-```
+1. Verify that a Kafka cluster is running in the `kafka-tutorial` namespace:
 
-Expected output:
+   ```bash
+   kubectl get kafka -n kafka-tutorial
+   ```
 
-```
-NAME         READY   WARNINGS   KAFKA VERSION   METADATA VERSION
-my-cluster   True               4.2.0           4.2-IV0
-```
+   Expected output:
 
-```bash
-kubectl get kafkatopic -n kafka-tutorial
-```
+   ```
+   NAME         READY   WARNINGS   KAFKA VERSION   METADATA VERSION
+   my-cluster   True               4.2.0           4.2-IV0
+   ```
 
-Expected output:
+2. Check for existing Kafka topics in the `kafka-tutorial` namespace:
 
-```
-NAME             CLUSTER      PARTITIONS   REPLICATION FACTOR   READY
-my-first-topic   my-cluster   3            1                    True
-```
+   ```bash
+   kubectl get kafkatopic -n kafka-tutorial
+   ```
 
-Both the Kafka cluster and the topic are `READY: True`. This is the known-good baseline you will return to at the end of the lesson.
+   Expected output:
+
+   ```
+   NAME             CLUSTER      PARTITIONS   REPLICATION FACTOR   READY
+   my-first-topic   my-cluster   3            1                    True
+   ```
+
+Both the Kafka cluster and topic show a `READY` status of `True`. This is the known-good baseline you return to at the end of the lesson.
+
 
 ### Check the Git history
+
+View the Git commit history:
 
 ```bash
 git log --oneline
 ```
 
-The most recent commit will be the lesson-3 reset:
+Expected output:
 
 ```
 abc1234 Reset to lesson-3 starting state
 ...
 ```
 
-Watch this history grow as the lesson progresses.
+The Git commit history expands as you complete subsequent steps in the lesson.
 
 ### Review the manifest
 
-```bash
-cat manifests/topic.yaml
-```
+1. Display the contents of the `manifests/topic.yaml` file:
 
-Confirm `partitions: 3`. That number is about to change.
+   ```bash
+   cat manifests/topic.yaml
+   ```
+
+2. Verify that the `partitions` parameter is set to `3`.
 
 ## Part 2: Deploy the breaking change
 
-**The scenario:** a team member decides to reduce `my-first-topic` from 3 partitions to 1 to save resources. It seems harmless. Kafka, however, does not allow partition counts to decrease — topics can gain partitions but never lose them.
+In this scenario, a team member attempts to reduce the partition count of `my-first-topic` from 3 to 1 to save resources. However, Apache Kafka does not support reducing topic partitions; you can increase the partition count of a topic, but you cannot decrease it.
 
-Open `manifests/topic.yaml` in your editor and change `partitions: 3` to `partitions: 1`:
+1. Open `manifests/topic.yaml` in your text editor and change `partitions: 3` to `partitions: 1`: 
 
-```yaml
-spec:
-  partitions: 1
-  replicas: 1
+   ```yaml
+   spec:
+     partitions: 1
+     replicas: 1
+   ```
+
+2. Stage the change:
+
+   ```bash
+   git add manifests/topic.yaml
+   ```
+
+3. Commit the change:
+
+   ```bash
+   git commit -m "Reduce my-first-topic to 1 partition"
+   ```
+
+4. Push the commit to the repository:
+
+   ```bash
+   git push
+   ```
+
+   Argo CD polls the repository every 30 seconds.
+
+5. Monitor the Argo CD application status:
+
+   ```bash
+   kubectl get application kafka-tutorial -n argocd -w
+   ```
+
+6. Observe the `SYNC STATUS` column.
+   
+   Within approximately 30 seconds, the status changes from `Synced` to `OutOfSync` when Argo CD detects the Git push, and then returns to `Synced` once the changes are applied.
+   Expected output:
+
+   ```
+   NAME             SYNC STATUS   HEALTH STATUS
+   kafka-tutorial   Synced        Progressing
+   ```
+8. Press Ctrl+C once you see the status return to `Synced`.
+
+Argo CD reports a `SYNC STATUS` of `Synced` because it successfully applied the manifest to Kubernetes and the API server accepted the changes. However, the `HEALTH STATUS` column displays `Progressing` instead of `Healthy`. Argo CD waits for the resource to become ready, but the underlying resource cannot reach a healthy state. 
+
+The next section explains how to investigate this issue.
+
+## Part 3: Investigate the failure
+
+1. Check the Kafka topic status in the `kafka-tutorial` namespace:
+
+   ```bash
+   kubectl get kafkatopic -n kafka-tutorial
+   ```
+   Expected output:
+   ```
+   NAME             CLUSTER      PARTITIONS   REPLICATION FACTOR   READY
+   my-first-topic   my-cluster   1            1                    False
+   ```
+   The resource reports a `READY` status of `False`. Although the manifest was applied, the partition change failed. The `PARTITIONS` column shows `1`, which reflects the updated `KafkaTopic` specification. However, Strimzi could not reduce the partition count inside the Kafka cluster.
+   
+2. Inspect the `KafkaTopic` resource details to determine why the operation failed:
+
+   ```bash
+   kubectl describe kafkatopic my-first-topic -n kafka-tutorial
+   ```
+   Expected output:
+   ```
+   Conditions:
+     Type:    Ready
+     Status:  False
+     Reason:  NotSupported
+     Message: Decreasing partitions not supported
+   ```
+   Review the `Conditions` section in the command output. The Strimzi Topic Operator attempted to reconfigure the topic, but Kafka rejected the operation. The actual topic inside the broker retains its original 3 partitions. However, the `KafkaTopic` custom resource enters an error state because the specification in the Git repository conflicts with the actual broker state.
+   
+3. Check the Argo CD `Application` status:
+   
+   ```bash
+   kubectl get application kafka-tutorial -n argocd
+   ```
+   Expected output:
+   ```
+   NAME             SYNC STATUS   HEALTH STATUS
+   kafka-tutorial   Synced        Progressing
+   ```
+   The application status demonstrates the key distinction between synchronization and health:
+   * `SYNC STATUS` of `Synced`: Argo CD successfully applied the manifest to Kubernetes.
+   * `HEALTH STATUS` of `Progressing`: Argo CD is waiting for the resource to become ready. Because Strimzi enforces Kafka's partition constraint, the topic remains in a `READY: False` state and cannot reach a healthy state.
+   Both the `SYNC STATUS` and `HEALTH STATUS` metrics are critical, and they can disagree. A deployment is complete only when the application status is both `Synced` and `Healthy`.
+   An application that reports `Synced` but remains `Progressing` indefinitely indicates that a GitOps rollback is required.
+
+## Part 4: Roll back changes with git revert
+
+1. View the commit history to identify the commit to revert:
+
+   ```bash
+   git log --oneline
+   ```
+   Expected output:
+   ```
+   def5678 Reduce my-first-topic to 1 partition
+   abc1234 Reset to lesson-3 starting state
+   ```
+
+   The breaking change is the most recent commit (`HEAD`). 
+
+2. Revert the most recent commit:
+
+   ```bash
+   git revert HEAD --no-edit
+   ```
+
+   The `git revert HEAD` command creates a new commit that applies the exact inverse of `HEAD`. If `HEAD` changed `partitions: 3` to `partitions: 1`, the revert changes it back to `partitions: 3`. The `--no-edit` flag accepts the default commit message without opening an interactive editor.
+
+3. Verify that the revert commit was added to the history:
+
+   ```bash
+   git log --oneline
+   ```
+   Expected output:
+   ```
+   789abcd Revert "Reduce my-first-topic to 1 partition"
+   def5678 Reduce my-first-topic to 1 partition
+   abc1234 Reset to lesson-3 starting state
+   ```
+   The commit history now contains three entries. The bad commit is preserved in the history to maintain an explicit audit trail, while the revert commit rests on top to record what was undone and when.
+
+4. Push the revert commit to the remote repository:
+
+   ```bash
+   git push
+   ```
+
+   This completes the GitOps rollback. Because the Git repository serves as the single source of truth, you do not need to run `kubectl` commands or manually trigger deployment pipelines. The automated controller detects the configuration change in Git and reconciles the live cluster state to match.
+
+### Risks of rewriting Git history with `git reset --hard`
+
+You can also roll back changes by rewriting Git history:
 ```
-
-Commit and push:
-
-```bash
-git add manifests/topic.yaml
-git commit -m "Reduce my-first-topic to 1 partition"
-git push
-```
-
-ArgoCD polls the repository every 30 seconds. Watch it detect the change:
-
-```bash
-kubectl get application kafka-tutorial -n argocd -w
-```
-
-The `SYNC STATUS` column will move from `Synced` → `OutOfSync` → `Synced` within about 30 seconds. Press `Ctrl+C` once it settles.
-
-The output should now look something like this:
-
-```
-NAME             SYNC STATUS   HEALTH STATUS
-kafka-tutorial   Synced        Progressing
-```
-
-ArgoCD reports `Synced` — from its perspective, its job is done. It applied the manifest to Kubernetes and the API accepted it. But notice the `HEALTH STATUS` column: it says `Progressing`, not `Healthy`. ArgoCD is waiting for the resource to become ready, but something is wrong underneath. In the next section, you will find out what.
-
-## Part 3: Detect the problem
-
-Check the topic status:
-
-```bash
-kubectl get kafkatopic -n kafka-tutorial
-```
-
-Expected output:
-
-```
-NAME             CLUSTER      PARTITIONS   REPLICATION FACTOR   READY
-my-first-topic   my-cluster   1            1                    False
-```
-
-`READY: False`. The manifest was applied, but the change is not working. Note that `PARTITIONS` now shows `1` — that is what the KafkaTopic CR specifies. But Strimzi could not actually change the partition count inside Kafka.
-
-Find out why:
-
-```bash
-kubectl describe kafkatopic my-first-topic -n kafka-tutorial
-```
-
-Look at the `Conditions` section near the bottom:
-
-```
-Conditions:
-  Type:    Ready
-  Status:  False
-  Reason:  NotSupported
-  Message: Decreasing partitions not supported
-```
-
-Strimzi's Topic Operator attempted to reconfigure the topic and Kafka itself rejected the operation. The actual topic inside the broker still has 3 partitions — nothing in Kafka changed. But the KafkaTopic CR is in an error state because what the configuration in the Git repository says and what the broker has are now out of agreement.
-
-Now check the ArgoCD application status again:
-
-```bash
-kubectl get application kafka-tutorial -n argocd
-```
-
-```
-NAME             SYNC STATUS   HEALTH STATUS
-kafka-tutorial   Synced        Progressing
-```
-
-This is the key distinction from the background section made real:
-
-- `SYNC STATUS: Synced` — ArgoCD applied the manifest to Kubernetes. It did its job.
-- `HEALTH STATUS: Progressing` — ArgoCD is waiting for the resource to become ready, but it never will. Strimzi has enforced Kafka's constraint and the topic is stuck in a `READY: False` state.
-
-Sync tells you whether ArgoCD succeeded. Health tells you whether the underlying system is in a good state. **Both matter, and they can disagree.** A deployment is not complete until it is both Synced and Healthy — not Synced and Progressing indefinitely.
-
-This situation — synced but not healthy — is exactly when a GitOps rollback is needed.
-
-## Part 4: Rollback with git revert
-
-First, look at the commit history to understand what to revert:
-
-```bash
-git log --oneline
-```
-
-```
-def5678 Reduce my-first-topic to 1 partition
-abc1234 Reset to lesson-3 starting state
-```
-
-The breaking change is the most recent commit — `HEAD`. You need to undo it.
-
-Perform the rollback:
-
-```bash
-git revert HEAD --no-edit
-```
-
-`git revert HEAD` creates a new commit that applies the exact inverse of what `HEAD` introduced. If `HEAD` changed `partitions: 3` to `partitions: 1`, the revert changes it back to `partitions: 3`. The `--no-edit` flag accepts the default commit message without opening an editor.
-
-Look at what just happened:
-
-```bash
-git log --oneline
-```
-
-```
-789abcd Revert "Reduce my-first-topic to 1 partition"
-def5678 Reduce my-first-topic to 1 partition
-abc1234 Reset to lesson-3 starting state
-```
-
-Three commits. The bad commit is still there — it was not erased. The revert commit sits on top of it, documenting exactly what was undone and when. This is the audit trail.
-
-Push the revert:
-
-```bash
-git push
-```
-
-That is the rollback. No `kubectl` command was run. No deployment pipeline was triggered. You changed the configuration in Git; the system will reconcile to match.
-
-### Why not git reset --hard?
-
-You could also roll back by rewriting history:
-
-```bash
 git reset --hard HEAD~1
-git push --force   # DO NOT DO THIS
 ```
-
-This removes the bad commit as if it never existed. In a GitOps context this is an anti-pattern:
-
-- Anyone who pulled the bad commit now has a divergent history and will see errors on their next `git pull`
-- The audit trail is gone — no record of what changed or when it was fixed
-- Force-pushing to a shared branch is a coordination hazard in teams
-- In regulated environments, history rewriting may violate compliance requirements
-
-`git revert` is additive and safe. The full sequence of events stays in history for anyone to inspect.
-
-## Part 5: Watch the recovery
-
-ArgoCD will pick up the revert within about 30 seconds. Watch the recovery:
-
-```bash
-kubectl get application kafka-tutorial -n argocd -w
 ```
-
-The application will move through `OutOfSync` → `Synced` as ArgoCD detects the new commit and applies the restored manifest. Press `Ctrl+C` once it settles.
-
-Verify the topic is healthy again:
-
-```bash
-kubectl get kafkatopic my-first-topic -n kafka-tutorial
+git push --force
 ```
+> **Warning:** Do not force-push (`git push --force`) in a production environment.
 
-Expected output:
+This approach removes the commit from history as if it never existed. In a GitOps context, rewriting history is an anti-pattern for the following reasons:
 
-```
-NAME             CLUSTER      PARTITIONS   REPLICATION FACTOR   READY
-my-first-topic   my-cluster   3            1                    True
-```
+* Anyone who pulled the bad commit has a divergent Git history and encounters errors when running `git pull`.
+* Deleting the commit removes the audit trail: no record remains of what changed or when the issue was resolved.
+* Force-pushing to a shared branch can overwrite commits made by other team members.
+* In regulated environments, rewriting history can violate auditing and compliance requirements.
 
-`READY: True`. `PARTITIONS: 3`. The topic is back to its working state.
+In contrast, the `git revert` command is additive and safe. The complete sequence of events remains in the commit history for future inspection.
 
-Check the application health:
+## Part 5: Observe system recovery
 
-```bash
-kubectl get application kafka-tutorial -n argocd
-```
+1. Monitor the application synchronization status as Argo CD detects the revert commit:
+   
+   ```bash
+   kubectl get application kafka-tutorial -n argocd -w
+   ```
 
-```
-NAME             SYNC STATUS   HEALTH STATUS
-kafka-tutorial   Synced        Healthy
-```
+   Argo CD detects the new commit within approximately 30 seconds and transitions through `OutOfSync` to `Synced` status as it applies the restored manifest. Press Ctrl+C once you see the status return to `Synced`.
 
-Both `Synced` and `Healthy`. The system has fully recovered.
+2. Verify that the Kafka topic returned to a healthy state:
+   
+   ```bash
+   kubectl get kafkatopic my-first-topic -n kafka-tutorial
+   ```
+   Expected output:
+   ```
+   NAME             CLUSTER      PARTITIONS   REPLICATION FACTOR   READY
+   my-first-topic   my-cluster   3            1                    True
+   ```  
 
-Review the full audit trail:
+   The topic reports a `READY` status of `True` and a `PARTITIONS` count of `3`.
 
-```bash
-git log --oneline
-```
+3. Confirm the Argo CD application sync and health status:
 
-```
-789abcd Revert "Reduce my-first-topic to 1 partition"
-def5678 Reduce my-first-topic to 1 partition
-abc1234 Reset to lesson-3 starting state
-```
+   ```bash
+   kubectl get application kafka-tutorial -n argocd
+   ```
+   Expected output:
+   ```
+   NAME             SYNC STATUS   HEALTH STATUS
+   kafka-tutorial   Synced        Healthy
+   ```
+   
+   The application displays both `SYNC STATUS` of `Synced` and `HEALTH STATUS` of `Healthy`. This status combination indicates that the live cluster state matches the Git repository specification and the resource is fully operational.
 
-The complete sequence is preserved: what was changed, when, and when it was reverted.
+4. Review the complete audit trail in the Git commit history:
+   
+   ```bash
+   git log --oneline
+   ```
 
-## How it worked
+   Expected output:
+   ```
+   789abcd Revert "Reduce my-first-topic to 1 partition" 
+   def5678 Reduce my-first-topic to 1 partition 
+   abc1234 Reset to lesson-3 starting state
+   ```
+   
+   The commit log preserves the complete sequence of events and documents what changed, when the change occurred, and when you reverted the change.
 
-```
-git push (the revert commit)
-  └─▶ Gitea receives the new commit
+### GitOps reconciliation process
 
-ArgoCD polls Gitea (every 30 seconds)
-  └─▶ Detects HEAD has moved (new revert commit)
-  └─▶ Renders the kustomize manifests — topic.yaml now has partitions: 3
-  └─▶ Compares live cluster state to desired state
-  └─▶ Applies the update — KafkaTopic CR updated back to partitions: 3
+The following sequence describes the process that occurs when you execute `git push`:
 
-Strimzi Topic Operator
-  └─▶ Sees KafkaTopic CR updated to partitions: 3
-  └─▶ Checks the actual Kafka topic — it already has 3 partitions (never changed)
-  └─▶ No Kafka operation needed; marks KafkaTopic Ready: True
+1. Gitea (the Git server inside the cluster) receives the push.
+2. Argo CD polls Gitea every 30 seconds and detects that `HEAD` has moved to the new revert commit. Argo CD renders the Kustomize manifests (`topic.yaml` now specifies `partitions: 3`).
+3. Argo CD compares the rendered state against the live cluster state and sets `partitions: 3` in the `KafkaTopic` custom resource (CR).
+4. The Strimzi Topic Operator detects the updated `partitions` value in the CR and checks the actual Kafka topic in the broker. Observing that the topic already has 3 partitions, the operator performs no Kafka operation and sets the `KafkaTopic` status to `Ready: True`.
+5. Argo CD verifies that the `KafkaTopic` `Ready` condition is `True` and updates the application health status to `Health: Healthy`.
 
-ArgoCD health check
-  └─▶ Sees KafkaTopic Ready condition is True
-  └─▶ Reports application Health: Healthy
-```
+> **Note:** The partition count of the Kafka topic inside the broker remained unchanged. Strimzi protected the broker from the invalid operation throughout the process. Executing the `git revert` command brought the configuration in the Git repository and the `KafkaTopic` CR back into synchronization with the state of the broker.
 
-Note that the actual Kafka topic inside the broker never had its partition count changed. Strimzi protected the broker from the invalid operation the entire time. What `git revert` did was bring the configuration in the Git repository and the KafkaTopic CR back in sync with the broker's actual state.
+### View the Argo CD dashboard (optional)
 
-## Optional: View the ArgoCD dashboard
+1. Port-forward the Argo CD server service in a separate terminal window:
+   
+   ```bash
+   kubectl port-forward svc/argocd-server -n argocd 8080:443
+   ```
+2. Open https://localhost:8080 in your browser and accept the self-signed certificate warning.
+   
+3. Retrieve the administrator password:
 
-In a separate terminal, start the port-forward:
+   ```bash
+   kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d; echo
+   ```
+4. Log in using `admin` as the username and the retrieved password.
+   
+   The **kafka-tutorial** tile displays two distinct indicators: a sync badge and a health badge. After deploying the breaking change, the tile displays **Synced** alongside **Degraded**. After you revert the change, both badges transition to **Synced** and **Healthy**.
 
-```bash
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-```
+5. Select the **kafka-tutorial** application to open the resource tree. Click **my-first-topic** to view the `KafkaTopic` custom resource details, including the error condition reported by Strimzi.
 
-Open [https://localhost:8080](https://localhost:8080) (accept the self-signed certificate warning).
+## Key takeaways
 
-Retrieve the admin password:
-
-```bash
-kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d; echo
-```
-
-Log in with username `admin`.
-
-The `kafka-tutorial` tile shows two distinct indicators: a sync badge and a health badge. After deploying the breaking change, you will see `Synced` alongside `Degraded`. After the revert, both badges turn green — `Synced` and `Healthy`.
-
-Click the Application to open the resource tree. Click on `my-first-topic` to see the KafkaTopic details, including the error condition from Strimzi. This view makes the sync/health distinction visible at a glance.
-
-
-## What you've learned
-
-- ArgoCD `Synced` means the Kubernetes API accepted the manifest — it does not mean the change was successful at the platform level
-- A resource stuck in `Progressing` (never reaching `Healthy`) is a signal to investigate even when sync succeeds
-- Strimzi enforces Kafka's own constraints; some invalid changes deploy silently through Kubernetes but are rejected by the operator
-- `git revert` is the correct GitOps rollback tool: it creates a new commit, preserves history, and is safe for shared branches
-- `git reset --hard` with force-push destroys the audit trail and causes problems for anyone who pulled the broken commit
-- Rollback in GitOps requires no special tooling — change the configuration in the Git repository, and the reconciler heals the cluster automatically
+* The Argo CD **Synced** status indicates that the Kubernetes API accepted the manifest; it does not mean the change succeeded at the platform level.
+* A resource in the **Progressing** status that never reaches **Healthy** signals an issue that requires investigation, even when synchronization succeeds.
+* Strimzi enforces Kafka-specific constraints. Some invalid changes deploy silently through Kubernetes but are rejected by the operator.
+* Executing `git revert` is the standard GitOps rollback method because it creates a new commit, preserves commit history, and is safe for shared branches.
+* Executing `git reset --hard` with a force push destroys the audit trail and creates conflicts for collaborators who pulled the broken commit.
+* Rolling back in a GitOps workflow requires no specialized tooling: updating the configuration in the Git repository allows the reconciler to heal the cluster automatically.
 
 ## Troubleshooting
 
-**Infrastructure is not running**  
-If `./prep.sh` reports that the cluster or Strimzi is not found, run the setup script first: `../00-setup/setup.sh`.
+### Infrastructure is not running 
 
-**prep.sh fails waiting for KafkaTopic to be ready**  
-The Topic Operator only starts after the Kafka cluster is ready. If the Kafka wait succeeded but the KafkaTopic wait timed out, check the Entity Operator:
+If `./prep.sh` reports that the cluster or Kafka is not found, run the setup script: 
+
+```bash
+../00-setup/setup.sh
+```
+
+### The `prep.sh` script fails while waiting for `KafkaTopic` to be ready
+
+The Topic Operator starts only after the Kafka cluster is ready. If the Kafka wait succeeded but the `KafkaTopic` wait timed out, check the Entity Operator:
 
 ```bash
 kubectl get pods -n kafka-tutorial
+```
+```bash
 kubectl logs -n kafka-tutorial -l strimzi.io/component-type=entity-operator
 ```
+Rerunning `./prep.sh` resets the environment and retries.
 
-Re-running `./prep.sh` will reset and retry.
+### Argo CD displays Synced but health status is Progressing after the revert
 
-**ArgoCD shows Synced but HEALTH is Progressing after the revert**  
-This is transient — ArgoCD's health check polls on a short interval. Wait 10–15 seconds and re-check. If it persists, check the topic status directly:
+This is transient. The Argo CD health check polls on a short interval. Wait 10 to 15 seconds and check again. If it persists, check the topic status directly:
 
 ```bash
 kubectl describe kafkatopic my-first-topic -n kafka-tutorial
 ```
 
-**git revert opens an editor and I don't know how to exit**  
-If you ran `git revert HEAD` without `--no-edit`, your default editor opens. In `vi`: press `Esc`, type `:wq`, press Enter. In `nano`: press `Ctrl+X`, then `Y`, then Enter. Alternatively, abort with `Ctrl+C` and rerun with `--no-edit`:
+### Exiting the text editor during git revert 
+
+If you run `git revert HEAD` without the `--no-edit` flag, your default text editor opens. To exit `vi`, press `Esc`, type `:wq`, and press `Enter`. To exit `nano`, press `Ctrl+X`, press `Y`, and press `Enter`. Alternatively, press `Ctrl+C` to abort the command and rerun it with the `--no-edit` flag:
 
 ```bash
 git revert HEAD --no-edit
 ```
 
-**The topic still shows PARTITIONS: 1 after the revert and ArgoCD sync**  
-Confirm the revert commit was pushed and ArgoCD has synced it:
+### The topic still displays PARTITIONS: 1 after the revert and Argo CD sync
+
+Confirm that the revert commit was pushed and that Argo CD has synchronized the changes:
 
 ```bash
 git log --oneline          # confirm the revert commit is the latest
@@ -506,23 +499,24 @@ git status                 # confirm nothing is unpushed ("Your branch is up to 
 kubectl get application kafka-tutorial -n argocd   # confirm SYNC STATUS is Synced
 ```
 
-If the revert was not pushed, run `git push`. To trigger an immediate ArgoCD sync without waiting for the next 30-second poll:
+If the revert commit was not pushed, run `git push`. To trigger an immediate Argo CD sync without waiting for the next 30-second poll cycle:
 
 ```bash
 kubectl annotate application kafka-tutorial -n argocd \
   argocd.argoproj.io/refresh=normal --overwrite
 ```
 
-**Strimzi is not managing the kafka-tutorial namespace**  
-Verify the Strimzi operator is running and watching all namespaces:
+### Strimzi is not managing the kafka-tutorial namespace 
+
+Verify that the Strimzi operator is running and watching all namespaces:
 
 ```bash
 kubectl get deployment strimzi-cluster-operator -n strimzi-operator \
   -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="STRIMZI_NAMESPACE")].value}'; echo
 ```
 
-It should show `*`. If not, re-run `../00-setup/setup.sh`.
+The command output displays `*`. If it does not, rerun `../00-setup/setup.sh`.
 
-## What's next
+## Next steps
 
-Congratulations, you've completed the third and final lesson of this series. Check out our (wrapping up)[wrapping-up.md] article to consolidate what you've learned and for some ideas for your next steps.
+Congratulations on completing the third and final lesson of this series. See [Wrapping up](wrapping-up.md) to consolidate what you have learned and explore ideas for your next steps.
