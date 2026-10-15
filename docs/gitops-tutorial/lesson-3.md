@@ -157,7 +157,7 @@ The Gitea server runs inside the cluster. The output of the `./prep.sh` script i
 2. Check for existing Kafka topics in the `kafka-tutorial` namespace:
 
    ```bash
-   +C -n kafka-tutorial
+   kubectl get kafkatopic -n kafka-tutorial
    ```
 
    Expected output:
