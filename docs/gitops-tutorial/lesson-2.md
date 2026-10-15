@@ -482,7 +482,7 @@ Both clusters start in parallel.
    kubectl get pods -n kafka-production
    ```
    
-If the pods remain in the `Pending` state, Docker memory might be insufficient. This lesson requires approximately 8 GB of memory. Check Docker Desktop memory settings.
+If the pods remain in the `Pending` state, cluster memory might be insufficient. This lesson requires approximately 10 GB of memory. Check your cluster memory settings.
 
 ### Argo CD application is not syncing
 
