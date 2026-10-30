@@ -2,168 +2,147 @@
 title = 'Introduction to GitOps'
 +++
 
-Most of us start managing infrastructure by clicking through web consoles.
-It works, and it's easy to learn.
-But when systems grow and more people are involved, this approach starts causing problems.
-This document explains what ClickOps is, why it can be painful in production, and how GitOps helps.
+Most of us start managing infrastructure by clicking through web user interfaces and management consoles. 
+It works well initially and is easy to learn. However, as your systems scale and teams grow, 
+manual configuration management introduces risk, inconsistency, and operational friction. 
+
+This document explains manual console management (often called ClickOps), why it creates problems in 
+production environments, and how GitOps provides a reliable, automated alternative.
 
 ## What is ClickOps?
 
-ClickOps means managing infrastructure by clicking through web consoles and admin UIs.
-Need a new Kafka topic?
-Log in to the console, fill in the form, click "Create".
-Need to give someone access to a namespace?
-Go to IAM settings, find the role, assign it, click "Save".
+ClickOps refers to managing infrastructure manually by clicking through web consoles and administration interfaces. 
+For example, if you need a new Apache Kafka topic, you log in to the web console, fill in a form, and select **Create**. 
+If you need to grant user access to a namespace, you navigate to Identity and Access Management (IAM) settings, find the role,
+assign it, and save the changes.
 
-This is fine for trying things out or learning.
-The problems start when teams use this approach for managing infrastructure in production.
+While manual console management works well for learning or running quick experiments, relying on manual steps to manage 
+production infrastructure creates difficulties.
 
 ## The problems with ClickOps
 
 ### Drift and inconsistency
 
-When people do things by hand, they can do them slightly differently each time.
-Two engineers setting up the same thing will pick slightly different values, miss different labels, or skip different steps.
-Over time, environments that should be the same start to differ in ways that are hard to notice and hard to debug.
+When engineers make infrastructure changes manually, they introduce subtle variations. 
+Two engineers configuring identical components might select slightly different parameter values, miss required labels, or omit specific setup steps. 
+Over time, staging and production environments diverge, creating configuration drift that is difficult to detect and troubleshoot.
 
 ### Audit logs without context
 
-Most platforms have audit logs.
-Kubernetes has audit logging, cloud providers have tools like AWS CloudTrail, OpenShift has event history.
-But these logs record low-level API calls ("user X updated ConfigMap Y at 14:32"), not *why* someone made a change.
-When you need to understand what a colleague did and why, you end up going through audit logs, Slack messages, tickets, and asking around.
+Most enterprise platforms provide audit logs. Kubernetes records API events, cloud providers offer tools such as AWS CloudTrail, and Red Hat OpenShift tracks event history.
+However, these logs record low-level API calls, such as `user X updated ConfigMap Y at 14:32`. They do not record why an engineer made the change. 
+To understand the context behind an update, you must search through ticket queues, chat histories, and audit logs while trying to contact team members.
 
 ### Reproducibility depends on discipline
 
-If a cluster goes down and you need to recreate it, or you want to set up a new cluster _identical_ to an existing known good configuration, how do you do it?
-With ClickOps, it depends on whether someone wrote down all the steps and kept that document up to date.
-Usually, the running system *is* the documentation.
-If the original deployment is gone, you're left trying to put things together from audit logs, backups, and what people remember.
-Even if the original is still running, how can you be sure you have found all the custom configurations that were set?
+If a cluster fails and you need to re-create it, or if you need to provision a new cluster that matches a known-good configuration, how do you do it? 
+With ClickOps, success depends on whether your team accurately documented every manual step. 
+In practice, the running system is often the only true record of configuration settings. 
+If an environment is lost, re-creating it requires piecing together historical audit logs, backups, and what colleagues remember.
+Even if the original environment is still running, how can you be sure you have found all the custom configurations that were applied?
 
-### Rollbacks take work
+### Rollbacks require manual effort
 
-Some platforms support rollbacks.
-Kubernetes tracks deployment history and `kubectl rollout undo` can revert a Deployment.
-But this only covers some resources.
-Rolling back a Kafka topic configuration, a ConfigMap, a set of RBAC rules, or a bunch of things that were changed together?
-That's a manual process.
-You have to figure out what the previous values were and re-apply them one by one.
+Platforms such as Kubernetes support automated rollbacks for specific resources using commands including kubectl rollout undo.
+However, manual changes to Kafka topic configurations, config maps, or role-based access control (RBAC) policies cannot be reverted automatically.
+Instead, you must determine the previous values and reapply them line by line.
 
 ## ClickOps in practice
 
-The issues discussed above can seem abstract.
-Below we discuss a few scenarios that show how these problems can look in real life.
+While these issues might seem abstract, they cause real disruption in daily operations. Here is how they look in practice:
 
-### "Deploy a Kafka cluster just like this one"
+### Scenario: Deploying an identical Kafka cluster
+A team maintains an Apache Kafka cluster in staging that required weeks of fine-tuning. The brokers use specific resource limits, topics use custom retention and replication parameters, and Kafka Connect connectors integrate external data sources.
 
-A team has a Kafka cluster in staging that took weeks to get right.
-The brokers have specific resource limits, topics have tuned retention and replication settings, and there are Kafka Connect connectors pulling data from other systems.
+A team lead asks a platform engineer to deploy a Kafka cluster in a new production namespace using the exact configuration from staging. 
+The engineer opens the staging web console, steps through each resource, and manually notes down the settings. 
+They then create the new cluster in production, entering each parameter value by hand.
 
-The team lead asks a platform engineer to deploy a Kafka cluster with the same configuration in a new production namespace.
-The engineer opens the staging console and starts going through each resource, writing down the settings.
-They create the new cluster in production, entering each value by hand.
+In the process, the engineer introduces minor errors:
+* Omits broker JVM settings by overlooking a configuration panel.
+* Creates a topic with a replication factor of 1 instead of 3 due to a default setting.
+* Points a Kafka Connect instance to the staging database endpoint because an external URL was copied without updating the target host.
 
-They miss a few things.
-The JVM options on the brokers are slightly different because they didn't check that panel.
-One topic has a replication factor of 1 instead of 3 because they left the default.
-A connector is pointing at the staging database endpoint because they copied the URL but forgot to change it.
+These discrepancies cause problems in the following weeks, including data loss during broker restarts, incorrect database routing, and unpredictable cluster performance under heavy load.
 
-These problems show up over the next weeks: messages get lost during a broker restart, connector data is wrong, brokers behave differently under load.
+### Scenario: Provisioning identical user access
+A new developer requires the same access rights to Kafka and Kubernetes as an existing developer. The team lead asks an administrator to set it up.
+The administrator manually inspects the existing user profile in the management console and creates matching role bindings. 
+They check the `KafkaUser` resources and try to copy the access control lists (ACLs): read access to some topics, write access to others, and permissions on consumer groups.
 
-### "Set up a user with the same access as this one"
+A week later, the new developer can produce messages to a topic but cannot consume them because the administrator missed a consumer group ACL. 
+Soon after, a security audit reveals that the administrator inadvertently granted the developer write permissions to a production topic due to a misclick in a dropdown menu.
 
-A new developer joins the team and needs the same Kafka and Kubernetes access as an existing team member.
-The team lead asks an administrator to set it up.
+### Scenario: Investigating recent changes
 
-The administrator opens the console and starts comparing.
-They look at the existing developer's role bindings, then create matching ones for the new user.
-They check the KafkaUser resources and try to copy the ACLs: read access to some topics, write access to others, permissions on consumer groups.
+On Monday morning, the on-call engineer notices that an event processing pipeline is dropping messages. An engineer who modified the pipeline on Friday is currently on vacation.
 
-A week later, the new developer reports they can produce to a topic but can't consume.
-The administrator missed a consumer group ACL.
-Another week later, a security review finds the new developer has write access to a production topic that the existing developer doesn't have.
-The administrator clicked the wrong topic name in a long dropdown.
+The on-call engineer inspects the environment to locate the issue. Kubernetes audit logs show multiple `PATCH` operations applied to config maps on Friday, but provide no explanatory context. 
+The Kafka console displays current topic retention settings, but does not indicate whether `retention.ms` was recently changed.
 
-### "What did someone change yesterday?"
+After three hours of comparing chat logs, audit entries, and old screenshots, the engineer discovers two independent modifications made by a colleague:
+* Reduced `max.poll.records` in a consumer application config map to prevent connection timeouts.
+* Decreased `retention.ms` on a topic as part of routine cleanup.
 
-It's Monday morning and the on-call engineer notices the event processing pipeline is dropping messages.
-A colleague made some changes on Friday for a different issue, but they're on holiday this week.
+Together, these changes cause consumer processing to fall behind, resulting in messages expiring before processing completes. 
 
-The on-call engineer starts looking into it.
-The Kubernetes audit logs show that several resources were updated on Friday, but the entries are just `PATCH` operations on ConfigMaps and custom resources.
-No explanation of why, and no way to tell which changes are related.
-The Kafka console shows the topic configuration, but was `retention.ms` always this value?
-The Kubernetes dashboard shows the deployments, but were the resource limits always this low?
+Now the engineer needs to roll back the previous changes, but to what values? The engineer is not sure, so they message the colleague on vacation.
+The colleague responds hours later with values from memory. 
 
-Three hours later, after going through Slack messages, audit logs, and comparing against screenshots from an old demo, the engineer figures it out.
-The colleague reduced `max.poll.records` in a consumer application's ConfigMap to work around a timeout, and changed `retention.ms` on a topic as part of a cleanup.
-Each change made sense on its own, but together they caused the pipeline to fall behind and drop messages when the retention window passed.
+### Summary of manual management challenges
 
-Now they need to roll back, but to what values?
-The engineer isn't sure, so they message the colleague on holiday.
-The colleague responds hours later with values from memory.
-
-### Summary
-
-All three scenarios share the same root cause: there is no single place where the full state of the system is defined, reviewed, and versioned.
-This is the problem that GitOps solves.
+Each of these scenarios demonstrates the same fundamental problem: the system lacks a single, version-controlled source of truth where configurations are declared, reviewed, and audited. 
+GitOps resolves these challenges. 
 
 ## What is GitOps?
 
-GitOps is a way of managing infrastructure where you describe the desired state in files stored in a Git repository.
-A controller watches the repository and keeps the live system in sync with what's in Git.
+GitOps is an operational framework for managing infrastructure where desired system states are defined in configuration files stored in a Git repository. A controller monitors the repository and synchronizes the live cluster to match the declared state in Git.
 
-The main ideas:
+Core principles of GitOps:
 
-- **Declarative configuration**: You describe infrastructure as YAML or JSON manifests, not as a list of manual steps.
-- **Git as the source of truth**: The Git repository is the single record of what the system should look like. All changes go through Git and, crucially from an auditing standpoint, the entire history of deployed configurations is available.
-- **Automated reconciliation**: A controller watches the Git repository and applies changes automatically, so the live state always matches what's declared. It can manage the cluster it runs in, or it can manage remote clusters from a central location.
+* **Declarative configuration:** You describe infrastructure in version-controlled formats, such as YAML or JSON manifests, not as a list of manual steps.
+* **Git as the single source of truth:** The Git repository serves as the definitive record of the desired system state. Every configuration change is submitted as a commit or pull request, providing a complete, auditable history of modifications and context.
+* **Automated reconciliation:** A controller monitors the Git repository and automatically applies declared updates to the target environment, ensuring that the live infrastructure remains synchronized with Git. The controller can manage its local cluster or centrally manage remote clusters.
 
-The diagram below shows how this works in practice.
-Changes go into the Git repository through pull requests.
-A Continuous Deployment (CD) system watches the repository, detects changes, and syncs resources to each environment.
+The following diagram illustrates how this process works in practice. Changes enter the Git repository through pull requests. A continuous deployment (CD) system monitors the repository, detects updates, and synchronizes resources to each environment.
 
 ![](./assets/gitops-flow.svg)
 
-## How GitOps solves the scenarios above
+## How GitOps solves production challenges
 
-### Deploying "a Kafka cluster just like this one"
+### Deploying an identical Kafka cluster
 
-Using GitOps, the staging cluster configuration is held in YAML files in a Git repository.
-The common settings (resource limits, JVM options, replication factor) are defined once in a base configuration.
-Environment-specific values like endpoints and namespaces can be added into established base configurations by overlaying specific values using systems like [Kustomize](https://kustomize.io/).
+With GitOps, cluster configurations are defined as declarative YAML manifests stored in a Git repository. Shared parameters, such as resource limits, JVM settings, and replication factors, are maintained in a common base configuration. Environment-specific variations, such as endpoints and namespaces, are applied by overlaying specific values using systems such as [Kustomize](https://kustomize.io/).
 
-Kustomize is a tool built into the Kubernetes command-line client (`kubectl`).
-It allows you to define a base set of Kubernetes resources and then apply patches or overrides per environment, without duplicating the whole configuration.
-For example, you can have one `Kafka` resource in `base/` and only override the bootstrap endpoint and namespace in `overlays/prod/`.
+Kustomize is a configuration management utility built into the Kubernetes command-line client (`kubectl`).
+It enables you to declare a shared base set of Kubernetes manifests and layer environment-specific overlays on top without duplicating configuration files. 
+For example, a base Kafka manifest lives in `base/`, while production-specific settings are applied in `overlays/prod/`. 
 
-An added advantage of this approach is that all changes can be applied via a pull request to the GitOps repository.
-This means pull-request reviews and/or automated testing in the repository can catch any mistakes before they reach production.
+All modifications are reviewed through Git pull requests before deployment, preventing configuration errors from reaching production.
 
-### Setting up "a user with the same access"
+### Provisioning identical user access
 
-Using GitOps, user access to the Kafka cluster is defined via a `KafkaUser` custom resource and RoleBinding YAML file in the GitOps repository.
-Adding the new developer means copying the existing user's files, changing the username, and opening a pull request.
-The review catches any mistakes.
-And because it's the same file with one field changed, the access is the same by definition, not by manual effort.
+With GitOps, user permissions are defined in `KafkaUser` custom resources and Kubernetes `RoleBinding` manifests checked into the Git repository. 
+Provisioning access for a new team member involves copying an existing manifest, updating the user identity field, and opening a pull request. 
+Peers review the pull request before merging, ensuring that access policies remain accurate and auditable.
+Because the new manifest reuses the structure of an existing file with only the user identity updated, permissions remain consistent by definition rather than through manual effort.
 
-### Figuring out "what someone changed yesterday"
+### Investigating recent changes
 
-With GitOps, the on-call engineer would check the Git log.
-They'd see what changed on Friday, with a commit message saying why.
-Rolling back would be a `git revert` and a push.
-The controller would then apply the previous state automatically.
-The entire process involves significantly less effort for incident responders and, crucially, takes far less time.
+With GitOps, the on-call engineer can check the Git commit history when investigating a problem.
+Every commit includes a descriptive message that explains what was modified and why. 
+If a change causes an issue, reverting to the last known-good state requires running `git revert` and pushing the commit to the repository. 
+The controller detects the push and automatically reconciles the cluster state.
+The entire process requires significantly less effort for incident responders and takes far less time.
 
-### Summary
+### Comparing ClickOps and GitOps
 
-| ClickOps challenge                          | GitOps approach                                                                                |
-|----------------------------------------------|------------------------------------------------------------------------------------------------|
-| Audit logs show what happened, not why       | Git commits include a message explaining the reason for each change                            |
-| Environments drift apart over time           | The declared state is the same for each environment, differences are explicit and reviewable    |
-| Reproducibility depends on documentation     | The whole environment can be recreated from the repository                                     |
-| Rollbacks are manual and partial             | `git revert` restores the previous state for all affected resources; the controller applies it |
+| Management challenge | ClickOps approach | GitOps approach |
+| :--- | :--- | :--- |
+| **Change context** | Audit logs show what happened, not why. | Git commits include detailed messages explaining why changes were made. |
+| **Environment consistency** | Environments drift over time due to manual modifications. | Declarative base configurations and overlays keep environments aligned. |
+| **System reproducibility** | Rebuilding environments depends on manual documentation. | Complete system states can be redeployed directly from Git. |
+| **Rollback capabilities** | Rollbacks require manual, resource-by-resource updates. | Running `git revert` restores the previous state across all resources. |
 
 ## Common GitOps technologies
 
@@ -171,58 +150,52 @@ There are two main tools for GitOps in the Kubernetes ecosystem:
 
 ### Argo CD
 
-[Argo CD](https://argo-cd.readthedocs.io/) is a Kubernetes native continuous delivery tool.
-It runs in a cluster, watches Git repositories, and syncs resources to match what's in the repository.
-It can manage the cluster it runs in, but it can also manage remote clusters, so you can run Argo CD on one cluster and have it deploy to several others.
+[Argo CD](https://argo-cd.readthedocs.io/) is a Kubernetes-native continuous delivery tool that monitors Git repositories and reconciles live resources to match the target state defined in Git. Argo CD can manage the local cluster where it is installed, but it can also manage remote clusters, enabling a central instance to deploy across multiple target environments.
 
-It comes with a CLI for scripting and automation, and also has a web-based dashboard where you can see the state of all your applications, their sync status, health, and resource details.
-The dashboard makes it easy to monitor what's deployed, spot problems, and see the diff between what's in Git and what's running in the cluster.
+Argo CD provides both a command-line interface (CLI) for automation and a web-based console that displays the state of all your applications, their synchronization status, and resource health in real time.
+The dashboard makes it easy to monitor what is deployed, identify problems, and see the difference between what is in Git and what is running in the cluster.
 
-Key features:
-
-- Built on Kubernetes custom resources
-- Web dashboard with real-time view of applications, sync status, and resource health
-- CLI for automation and scripting
-- Works with Kustomize, Helm, and plain YAML
-- Automated or manual sync with retry and self-healing
-- SSO and RBAC for access control
+Key features of Argo CD include:
+* Architecture built on Kubernetes custom resource definitions (CRDs).
+* Web-based console providing real-time visibility into application sync and health status.
+* CLI for automation and scripting.
+* Native integration with Kustomize, Helm, and standard Kubernetes YAML manifests.
+* Automated or manual reconciliation with automated retry and self-healing mechanisms.
+* Single sign-on (SSO) integration and role-based access control (RBAC).
 
 ### Flux
+[Flux](https://fluxcd.io/) is a Cloud Native Computing Foundation (CNCF) project for GitOps on Kubernetes. Flux uses in-cluster controllers to continuously reconcile cluster resources against Git repositories.
 
-[Flux](https://fluxcd.io/) is another CNCF project for GitOps on Kubernetes.
-It works similarly to Argo CD, with controllers in the cluster that reconcile resources against a Git repository.
+Key features of Flux include:
+* Architecture built on Kubernetes custom resource definitions (CRDs).
+* Support for Kustomize, Helm, and standard Kubernetes manifests.
+* Automatic updates to Git manifests when new container images are published.
+* Multitenancy support managed at the namespace level.
+* Notification system for reconciliation events.
 
-Key features:
+### Selecting a GitOps tool
 
-- Built on Kubernetes custom resources
-- Works with Helm, Kustomize, and plain YAML
-- Can automatically update manifests when new container images are published
-- Multi-tenancy support at the namespace level
-- Notification system for reconciliation events
+Both Argo CD and Flux are mature, production-ready open source tools that support declarative GitOps workflows. 
+Argo CD includes an integrated web dashboard that simplifies visual monitoring for teams adopting GitOps. Flux does not include a native dashboard, but external UIs such as [Capacitor](https://fluxcd.io/blog/2024/02/introducing-capacitor/) can provide similar visibility. 
 
-### Choosing a tool
+This tutorial series uses Argo CD during hands-on exercises.
 
-Both tools are mature and work well for production.
-Both are built around the CLI and Git workflow.
-Argo CD additionally provides a built-in web dashboard for monitoring and visibility, which can help teams get started with GitOps.
-Flux does not include a native dashboard, but external UIs like [Capacitor](https://fluxcd.io/blog/2024/02/introducing-capacitor/) can provide similar visibility.
-
-In this project, we use **Argo CD**.
-
-## What's next
+## Next steps
 
 ### Try the interactive GitOps tutorial
 
-The best way to start learning GitOps is by doing it.
-The [GitOps Tutorial](../gitops-tutorial/_index.md) is a hands-on, three-lesson series that walks you through real GitOps workflows using Strimzi and Argo CD on a local Kubernetes cluster.
+To see these principles in action, explore the interactive [GitOps Tutorial](../gitops-tutorial/_index.md) series. This hands-on series guides you through managing streaming infrastructure on a local Kubernetes cluster by using Argo CD and the Strimzi Operator:
 
-You'll start by making your first GitOps change and watching Argo CD automatically reconcile the cluster.
-From there, you'll learn how to manage multiple environments, promote changes from staging to production and handle failures with safe rollbacks.
+* Lesson 1: Deploy your first GitOps change, observe automated reconciliation, and learn how Argo CD synchronizes cluster state.
+* Lesson 2: Manage multi-environment configurations using Kustomize base and overlay patterns, and promote changes from staging to production.
+* Lesson 3: Handle operational failures by using `git revert` to roll back invalid changes and restore the cluster to a known-good state.
 
-Each lesson pairs a hands-on lab with a companion guide that explains the concepts behind what you're doing.
-Setup takes about eight minutes, and by the end you'll have practical experience with the core GitOps workflow: edit, commit, push, and let the automation do the rest.
+Setup requires approximately 8 minutes, providing practical experience with standard GitOps workflows: editing configuration, committing changes, and pushing to Git.
 
 ### Documentation and examples
+Beyond the tutorial, the rest of this documentation covers practical guides and examples for managing streaming infrastructure using GitOps. Examples are provided for common scenarios such as the following:
 
-Beyond the tutorial, the rest of this documentation covers practical guides and examples for managing streaming infrastructure using GitOps.
-You'll find configuration examples for common scenarios like deploying Kafka clusters, setting up OAuth-secured topics, configuring mirror makers for cross-cluster replication, and managing multiple applications with Argo CD ApplicationSets.
+* Deploying Kafka clusters.
+* Setting up OAuth-secured topics.
+* Configuring cross-cluster replication by using MirrorMaker.
+* Managing multi-application deployments at scale by using Argo CD ApplicationSets.
